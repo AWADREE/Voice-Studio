@@ -330,6 +330,14 @@ footer[aria-label="Gradio footer navigation"]>button.show-api:hover,footer[aria-
 .clip-editor,.batch-clip { background:#131c28 !important; border:0 !important; border-radius:14px !important; padding:16px !important; gap:12px !important; }
 #batch-output { gap:16px; }
 @media(prefers-reduced-motion:no-preference){ .clip-editor,.batch-clip { animation:batch-enter .2s ease-out; } @keyframes batch-enter {from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}} }
-.batch-audio audio { width:100%; display:block; color-scheme:dark; accent-color:#d9b96e; border-radius:10px; }
+
 #workflow-tabs #commentary-mode-tabs > .tab-wrapper { height:auto!important; min-height:56px!important; padding:0!important; margin:0 0 20px!important; display:block!important; position:relative!important; overflow:visible!important; }
 #workflow-tabs #commentary-mode-tabs [role=tablist] { position:relative!important; inset:auto!important; transform:none!important; display:flex!important; width:100%!important; min-height:56px!important; height:auto!important; box-sizing:border-box!important; gap:6px!important; padding:6px!important; margin:0!important; border:0!important; border-radius:12px!important; background:#102335!important; box-shadow:none!important; }
+#generation-notice { margin:0!important;padding:0!important; }
+.studio-generation-running { display:flex;align-items:center;gap:12px;padding:14px 16px;border-radius:12px;background:#102b3c;color:#dcebf4;font-weight:600; }
+.studio-generation-spinner { width:20px;height:20px;flex:0 0 20px;border:3px solid #567084;border-top-color:#d9b96e;border-radius:50%;animation:studio-generating .85s linear infinite; }
+@keyframes studio-generating {to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.studio-generation-spinner{animation:none}}
+#generate-commentary:disabled { opacity:.65!important;cursor:wait!important; }
+/* Dynamic player listeners rebuild their Gradio parent; hide empty output structurally. */
+#batch-output:not(:has(.batch-clip)):not(:has(.studio-output-status p)){display:none!important}

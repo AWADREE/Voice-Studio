@@ -306,16 +306,6 @@ def compose_controls(batch=False, clone_button=None):
     if not batch:
         text = gr.Textbox(label='Commentary text', lines=4, placeholder='Normal summon Dark Necromancer...')
     mode = entries = None
-    if batch:
-        mode = gr.State('single')
-        with gr.Tabs(elem_id='commentary-mode-tabs'):
-            with gr.Tab('Single commentary') as single_tab:
-                text = gr.Textbox(label='Commentary text', lines=4, placeholder='Normal summon Dark Necromancer...')
-            with gr.Tab('Timestamped clips') as batch_tab:
-                gr.Markdown('Each timestamp labels a separate clip for editing. No silence is inserted. Shared settings below apply to every clip.', elem_classes=['section-note'])
-                entries = gr.HTML([{'minutes':0,'seconds':0,'text':''}], html_template='<div class="clip-list"></div><button type="button" class="clip-add">Add clip</button>', js_on_load=ui_asset_text('clip-editor.js'), elem_id='clip-editor', css_template=ui_asset_text('clip-editor.css'))
-        single_tab.select(lambda:('single',gr.update(visible=True),gr.update(interactive=True,value='Clone reference & generate commentary')), outputs=[mode,text,clone_button], queue=False, api_name=False)
-        batch_tab.select(lambda:('batch',gr.update(visible=False),gr.update(interactive=False,value='Switch to Single commentary to clone')), outputs=[mode,text,clone_button], queue=False, api_name=False)
     instruction = gr.Textbox(label='Delivery instruction (optional)', lines=2, placeholder='Speak calmly and naturally, with quiet confidence.')
     language = gr.Dropdown(LANGUAGES, value='English', label='Language')
     with gr.Accordion('Generation settings', open=False, elem_classes=['generation-settings']):
@@ -337,7 +327,17 @@ def compose_controls(batch=False, clone_button=None):
         settings = [max_tokens,temperature,top_k,top_p,repetition,sampling,sub_temp,sub_k,sub_p,sub_sampling]
         reset = gr.Button('Reset sampling defaults')
         reset.click(lambda: SETTING_DEFAULTS, outputs=settings, api_name=False)
-    button = gr.Button('Generate commentary', variant='primary', elem_classes=['primary-action'])
+    if batch:
+        mode = gr.State('single')
+        with gr.Tabs(elem_id='commentary-mode-tabs'):
+            with gr.Tab('Single commentary') as single_tab:
+                text = gr.Textbox(label='Commentary text', lines=4, placeholder='Normal summon Dark Necromancer...')
+            with gr.Tab('Timestamped clips') as batch_tab:
+                gr.Markdown('Each timestamp labels a separate clip for editing. No silence is inserted. Shared settings above apply to every clip.', elem_classes=['section-note'])
+                entries = gr.HTML([{'minutes':0,'seconds':0,'text':''}], html_template='<div class="clip-list"></div><button type="button" class="clip-add">Add clip</button>', js_on_load=ui_asset_text('clip-editor.js'), elem_id='clip-editor', css_template=ui_asset_text('clip-editor.css'))
+        single_tab.select(lambda:('single',gr.update(visible=True),gr.update(interactive=True,value='Clone reference & generate commentary')), outputs=[mode,text,clone_button], queue=False, api_name=False)
+        batch_tab.select(lambda:('batch',gr.update(visible=False),gr.update(interactive=False,value='Switch to Single commentary to clone')), outputs=[mode,text,clone_button], queue=False, api_name=False)
+    button = gr.Button('Generate commentary', variant='primary', elem_classes=['primary-action'], elem_id='generate-commentary' if batch else None)
     return (text, instruction, language, seed, release, identity, button, settings, mode, entries) if batch else (text, instruction, language, seed, release, identity, button, settings)
 
 
@@ -501,6 +501,25 @@ def generate_commentary_mode(mode, rows, voice, text, instruction, language, see
     # Existing single preview remains on disk, but cannot be mistaken for this batch.
     return (gr.update(value=None,visible=False),gr.update(value=None,visible=False),'',None,'',False,gr.update(visible=False),gr.update(value=''),gr.update(value=None,visible=False),gr.update(value='',visible=False),False,result,gr.update(visible=True),result['status'],gr.update(value=result['archive'],visible=bool(result['archive'])))
 
+def generate_commentary_ui(*args, progress=gr.Progress()):
+    # Return a normal event result even on failure so the completion event always
+    # restores controls. Keep previous media and show an explicit error notice.
+    try:
+        return generate_commentary_mode(*args, progress=progress)
+    except Exception as error:
+        updates = [gr.skip() for _ in range(15)]
+        updates[2] = gr.update(value='Generation failed: ' + str(error), visible=True)
+        return tuple(updates)
+
+
+def generation_started():
+    return gr.update(interactive=False,value='Generating commentary...'), gr.update(value='<div class="studio-generation-running" role="status" aria-live="polite"><span class="studio-generation-spinner" aria-hidden="true"></span><span>Generating commentary. Please wait...</span></div>',visible=True)
+
+
+def generation_finished():
+    return gr.update(interactive=True,value='Generate commentary'), gr.update(value='',visible=False)
+
+
 def build_ui():
     with gr.Blocks(title='Voice Studio | Night Exchange') as app:
         with gr.Row(elem_id='studio-heading-row'):
@@ -540,9 +559,10 @@ def build_ui():
                             info = gr.Markdown(value='', elem_classes=['studio-output-status'], sanitize_html=True)
                             text, instruction, language, seed, release, identity, button, settings, commentary_mode, clip_entries = compose_controls(batch=True, clone_button=direct_preview)
                     with gr.Column(scale=1, min_width=0, elem_classes=['studio-panel','result-panel'], elem_id='listen-panel'):
+                        generation_notice = gr.HTML('',visible=False,elem_id='generation-notice')
                         audio, download, status = output_controls()
                         batch_result = gr.State(None)
-                        with gr.Column(visible=False, elem_id='batch-output') as batch_panel:
+                        with gr.Column(visible=True, elem_id='batch-output') as batch_panel:
                             batch_status = gr.Markdown('', elem_classes=['studio-output-status'])
                             with gr.Row():
                                 play_all = gr.Button('Play all', elem_id='batch-play-all')
@@ -553,10 +573,8 @@ def build_ui():
                                 for clip in (result or {}).get('clips', []):
                                     with gr.Column(elem_classes=['batch-clip'], key=clip['audio']):
                                         gr.Markdown('### '+clip['label'])
-                                        import html
-                                        from urllib.parse import quote
-                                        src = '/gradio_api/file='+quote(Path(clip['audio']).as_posix(),safe='/:')
-                                        gr.HTML('<audio controls preload="metadata" aria-label="'+html.escape(clip['label'])+'" src="'+html.escape(src)+'"></audio>',elem_classes=['batch-audio'])
+                                        player=gr.Audio(value=clip['audio'], type='filepath', interactive=False, label=clip['filename'], elem_classes=['studio-audio-output','studio-audio','batch-audio'], waveform_options=gr.WaveformOptions(waveform_color='#6e8b9f',waveform_progress_color='#d9b96e',trim_region_color='#d9b96e30'))
+                                        player.stop(fn=None,js='() => window.voiceStudioBatchPlayback?.finished('+str(clip['index']-1)+')',api_name=False,key='ended-'+clip['audio'])
                                         gr.DownloadButton('Download '+clip['label'], value=clip['audio'])
                         with gr.Column(visible=False, elem_classes=['studio-presence']) as preview_actions:
                             preview_confirm = gr.Checkbox(label='I listened and checked the spoken words', value=False)
@@ -572,7 +590,7 @@ def build_ui():
                 voice.clear(select_uploaded_voice,[voice],[info],api_name=False,queue=False)
                 use_correction.input(lambda: False, outputs=preview_confirm, api_name=False, queue=False)
                 correction.input(lambda: False, outputs=preview_confirm, api_name=False, queue=False)
-                button.click(generate_commentary_mode, [commentary_mode,clip_entries,voice,text,instruction,language,seed,release,identity,*settings], [audio,download,status,preview_state,preview_transcript,preview_confirm,preview_actions,correction,preview_file,preview_status,use_correction,batch_result,batch_panel,batch_status,batch_zip], api_name='generate_commentary', concurrency_limit=1)
+                button.click(generation_started, outputs=[button,generation_notice],queue=False,api_name=False).then(generate_commentary_ui, [commentary_mode,clip_entries,voice,text,instruction,language,seed,release,identity,*settings], [audio,download,status,preview_state,preview_transcript,preview_confirm,preview_actions,correction,preview_file,preview_status,use_correction,batch_result,batch_panel,batch_status,batch_zip], api_name='generate_commentary', concurrency_limit=1,show_progress='hidden').then(generation_finished,outputs=[button,generation_notice],queue=False,api_name=False)
                 # Preserve the existing single-clip API for integrations.
                 legacy_generate = gr.Button(visible=False)
                 legacy_generate.click(generate_preview_atomic, [voice,text,instruction,language,seed,release,identity,*settings], [audio,download,status,preview_state,preview_transcript,preview_confirm,preview_actions,correction,preview_file,preview_status,use_correction], api_name='generate', concurrency_limit=1)
