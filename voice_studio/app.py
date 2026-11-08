@@ -357,6 +357,8 @@ def output_controls():
     status = gr.Markdown(value='', elem_classes=['studio-output-status'], sanitize_html=True)
     unload_button = gr.Button('Unload experimental model')
     bind_busy_action(unload_button,unload,[],[status],'Unload experimental model','Unloading model...',0,queue_action=False)
+    legacy_unload = gr.Button(visible=False)
+    legacy_unload.click(unload,outputs=status,concurrency_limit=1)
     return audio, download, status
 
 
@@ -661,7 +663,7 @@ def build_ui():
                             preview_status = gr.Markdown(value='', visible=False, elem_classes=['studio-output-status'], sanitize_html=True)
                 preview_state = gr.State(None)
                 preview_transcript = gr.Textbox(visible=False)
-                bind_busy_action(save,save_voice_display,[ref_s,transcript_s,xvec_s],[saved,save_status],'Save voice file','Saving voice...',1,api_name='save_voice')
+                bind_busy_action(save,save_voice_display,[ref_s,transcript_s,xvec_s],[saved,save_status],'Save voice file','Saving voice...',1)
                 voice.upload(select_uploaded_voice,[voice],[info],api_name='inspect_voice',queue=False)
                 voice.clear(select_uploaded_voice,[voice],[info],api_name=False,queue=False)
                 use_correction.input(lambda: False, outputs=preview_confirm, api_name=False, queue=False)
@@ -676,10 +678,19 @@ def build_ui():
                 clone_ticket=gr.State(0)
                 clone_busy=bind_busy_action(direct_preview,None,[clone_ticket,ref_s,transcript_s,xvec_s,text,instruction,language,seed,release,*settings],
                     [audio,download,status,preview_state,preview_transcript,preview_confirm,saved,save_status,preview_actions,correction,preview_file,preview_status,use_correction,voice,info,batch_result,batch_panel],
-                    'Clone reference & generate commentary','Cloning & generating...',2,api_name='clone_reference_preview',
+                    'Clone reference & generate commentary','Cloning & generating...',2,
                     begin=begin_clone_selection,token=clone_ticket,adapter=clone_submission,finish_mode=commentary_mode,busy_state=clone_busy)
                 commentary_mode.change(lambda mode,busy:gr.skip() if busy else gr.update(interactive=mode=='single',value=('Clone reference & generate commentary' if mode=='single' else 'Switch to Single commentary to clone')),[commentary_mode,clone_busy],direct_preview,api_name=False,queue=False)
-                bind_busy_action(save_preview,save_preview_corrected,[preview_state,preview_confirm,correction,use_correction],[preview_file,preview_status],'Save as new voice .pt','Saving new voice...',1,api_name='save_preview_voice')
+                bind_busy_action(save_preview,save_preview_corrected,[preview_state,preview_confirm,correction,use_correction],[preview_file,preview_status],'Save as new voice .pt','Saving new voice...',1)
+                # Busy UI adapters use variadic signatures and extra UI-only outputs.
+                # Keep the existing public API contracts attached to the original
+                # typed callbacks so named clients and return tuple arity stay valid.
+                legacy_save = gr.Button(visible=False)
+                legacy_save.click(save_voice_display,[ref_s,transcript_s,xvec_s],[saved,save_status],api_name='save_voice',concurrency_limit=1)
+                legacy_clone = gr.Button(visible=False)
+                legacy_clone.click(clone_reference_selected,[clone_ticket,ref_s,transcript_s,xvec_s,text,instruction,language,seed,release,*settings],[audio,download,status,preview_state,preview_transcript,preview_confirm,saved,save_status,preview_actions,correction,preview_file,preview_status,use_correction,voice,info],api_name='clone_reference_preview',concurrency_limit=1)
+                legacy_save_preview = gr.Button(visible=False)
+                legacy_save_preview.click(save_preview_corrected,[preview_state,preview_confirm,correction,use_correction],[preview_file,preview_status],api_name='save_preview_voice',concurrency_limit=1)
         with gr.Accordion('General settings & model information', open=False, elem_classes=['generation-settings','studio-help','general-settings']):
             gr.Textbox(label='Model',value='Qwen3-TTS-12Hz-1.7B-Base',interactive=False)
             gr.Textbox(label='Checkpoint',value=str(MODEL_REPO/'snapshots'/(MODEL_REPO/'refs'/'main').read_text().strip()),interactive=False)

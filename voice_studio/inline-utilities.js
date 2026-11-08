@@ -6,7 +6,16 @@
  const host=kind=>document.getElementById('inline-'+kind+'-host');
  const header=kind=>section(kind)?.querySelector('button.label-wrap');
  const openState=kind=>header(kind)?.classList.contains('open');
- const footerButton=kind=>[...document.querySelectorAll('button')].find(b=>!b.closest('.studio-utility-section')&&b.textContent.trim()===(kind==='api'?'Use via API':'Settings'));
+ const footerButton=kind=>document.querySelector('footer[aria-label="Gradio footer navigation"] > button.'+(kind==='api'?'show-api':'settings'));
+ function dialogKind(dialog){
+  // Both native labels are localized. Match the corresponding native footer
+  // label or stable component markers, never English text or a guessed default.
+  if(dialog.querySelector('.theme-buttons'))return 'settings';
+  if(dialog.querySelector('#start-api-recorder'))return 'api';
+  const label=dialog.getAttribute('aria-label');
+  if(label)for(const kind of ['settings','api'])if(label===footerButton(kind)?.textContent.trim())return kind;
+  return null; // Native async component has not identified itself yet.
+ }
  function semantics(kind){
   const h=header(kind);if(!h)return;
   setAttribute(h,'aria-expanded',String(openState(kind)));
@@ -27,7 +36,7 @@
    const old=mounted.get(kind);if(old&&!old.isConnected){mounted.delete(kind);pending.delete(kind);if(openState(kind))header(kind).click();}
   }
   document.querySelectorAll('.api-docs[role="dialog"]').forEach(dialog=>{
-   const kind=dialog.getAttribute('aria-label')==='Settings'?'settings':'api';const target=host(kind);if(!target)return;
+   const kind=dialogKind(dialog);if(!kind)return;const target=host(kind);if(!target)return;
    dialog.dataset.inlineUtility=kind;dialog.setAttribute('role','region');dialog.removeAttribute('aria-modal');
    target.append(dialog);mounted.set(kind,dialog);pending.delete(kind);
    if(!openState(kind))header(kind)?.click();
@@ -52,7 +61,7 @@
  // Coalesce native component updates once per frame. Never create a synchronous
  // observer feedback chain with the app's existing component polish observer.
  let frame=0;
- const options={childList:true,subtree:true,attributes:true,attributeFilter:['class']};
+ const options={childList:true,subtree:true,attributes:true,attributeFilter:['class','aria-label']};
  const observer=new MutationObserver(()=>{
   if(frame)return;
   frame=requestAnimationFrame(()=>{
