@@ -13,7 +13,7 @@ python -m pip install -e ..
 python -m pip install -r requirements.txt
 python -B app.py
 ```
-Open http://127.0.0.1:8003. Windows users can run Open-GUI.ps1. Set VOICE_STUDIO_PYTHON to an existing environment's python executable for that launcher.
+Open http://127.0.0.1:8003. Windows users can run Open-GUI.ps1. Run Create-Shortcut.ps1 to create a local Voice Studio shortcut with the included multi-resolution icon. This creates no Start menu entry. Set VOICE_STUDIO_PYTHON to an existing environment's python executable for that launcher.
 
 Download the official Qwen/Qwen3-TTS-12Hz-1.7B-Base model separately following upstream instructions. This frontend intentionally uses local files only and never downloads weights on startup. Set HF_HOME to your existing Hugging Face cache, or VOICE_STUDIO_MODEL_CACHE to the model cache directory containing refs/main and snapshots/. VOICE_STUDIO_PORT selects another local port. No model loads until generation; CUDA and at least 6 GB free VRAM are checked, and default generation unloads afterward. This minimum is not a guarantee against OOM for long inputs.
 

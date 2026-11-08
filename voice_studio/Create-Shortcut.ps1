@@ -1,0 +1,18 @@
+# Creates a shortcut beside this script only. Does not install or modify Start menu entries.
+$ErrorActionPreference = 'Stop'
+$root = $PSScriptRoot
+$icon = Join-Path $root 'assets\app-icon\voice-studio.ico'
+$localLauncher = Join-Path $root 'Open Voice Studio.cmd'
+$shell = New-Object -ComObject WScript.Shell
+$link = $shell.CreateShortcut((Join-Path $root 'Voice Studio.lnk'))
+if (Test-Path -LiteralPath $localLauncher) {
+    $link.TargetPath = $localLauncher
+} else {
+    $link.TargetPath = (Get-Command powershell.exe -ErrorAction Stop).Source
+    $link.Arguments = '-NoProfile -File "' + (Join-Path $root 'Open-GUI.ps1') + '"'
+}
+$link.WorkingDirectory = $root
+$link.IconLocation = "$icon,0"
+$link.Description = 'Voice Studio'
+$link.Save()
+Write-Output (Join-Path $root 'Voice Studio.lnk')
