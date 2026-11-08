@@ -108,6 +108,8 @@
     document.querySelectorAll('.studio-reference-audio,.studio-voice-input,.studio-audio-output').forEach(el=>{
       if(referenceLayoutBusy(el))return;
       const prior=pickerGeometry.get(el);
+      const voiceSelection=el.matches('.studio-voice-input')?Boolean(el.querySelector('.file-preview-holder')):null;
+      if(voiceSelection!==null&&prior?.voiceSelection===voiceSelection)return;
       const source=el.querySelector('.source-selection button.selected')?.getAttribute('aria-label')||'';
       const body=el.querySelector('.audio-container');
       const current=el.getBoundingClientRect().height;
@@ -118,7 +120,7 @@
       const bodyTarget=body?.getBoundingClientRect().height;
       const from=prior?.animation?current:prior?.height;
       const bodyFrom=prior?.bodyAnimation?bodyCurrent:prior?.bodyHeight;
-      const entry={height:target,bodyHeight:bodyTarget,source,animation:null,bodyAnimation:null};pickerGeometry.set(el,entry);
+      const entry={height:target,bodyHeight:bodyTarget,source,voiceSelection,animation:null,bodyAnimation:null};pickerGeometry.set(el,entry);
       if(from==null||matchMedia('(prefers-reduced-motion: reduce)').matches)return;
       const timing={duration:220,easing:'cubic-bezier(.2,.8,.2,1)'};
       if(body && bodyFrom!=null && Math.abs(bodyTarget-bodyFrom)>=2){
@@ -143,19 +145,22 @@
       if(el.parentElement.closest('.studio-output-status')){el.classList.toggle('has-status',Boolean(el.textContent.trim()));return;}
       el.setAttribute('role','status');el.setAttribute('aria-live','polite');el.setAttribute('aria-atomic','true');
       const content=el.querySelector('.md:not([data-status-ghost])');
-      const text=content?.textContent.trim()||'';
+      const clearedVoice=el.id==='selected-voice-status'&&!document.querySelector('.studio-voice-input .file-preview-holder');
+      const text=clearedVoice?'':content?.textContent.trim()||'';
       const prior=statusPresence.get(el);
       if(prior?.text===text)return;
       const from=(!text?prior?.height:el.getBoundingClientRect().height)||prior?.height||0;
       prior?.animation?.cancel();prior?.ghost?.remove();
       el.style.removeProperty('display');el.style.removeProperty('overflow');el.style.removeProperty('padding');
       el.classList.toggle('has-status',Boolean(text));
+      content?.style.removeProperty('display');
       const state={text,height:el.getBoundingClientRect().height,content:content?.cloneNode(true)};
       statusPresence.set(el,state);
       if(!prior||matchMedia('(prefers-reduced-motion: reduce)').matches)return;
       const gap=parseFloat(getComputedStyle(el.parentElement).rowGap)||0;
       if(!text&&prior.content){
         state.ghost=prior.content;state.ghost.dataset.statusGhost='true';state.ghost.setAttribute('aria-hidden','true');state.ghost.inert=true;
+        if(content)content.style.setProperty('display','none','important');
         el.append(state.ghost);el.style.setProperty('display','block','important');
         el.classList.add('has-status');el.style.setProperty('padding','0','important');state.ghost.style.padding='10px 12px';
       }
@@ -168,13 +173,13 @@
       const samples=[];const sample=()=>{samples.push(Math.round(el.getBoundingClientRect().height*100)/100);if(state.animation?.playState==='running')requestAnimationFrame(sample);else el.dataset.statusMotion=JSON.stringify(samples);};requestAnimationFrame(sample);
       state.animation.onfinish=()=>{
         if(statusPresence.get(el)!==state)return;
-        state.ghost?.remove();el.style.removeProperty('display');el.style.removeProperty('overflow');el.style.removeProperty('padding');
+        state.ghost?.remove();content?.style.removeProperty('display');el.style.removeProperty('display');el.style.removeProperty('overflow');el.style.removeProperty('padding');
         el.classList.toggle('has-status',Boolean(text));state.animation=null;
       };
     });
   }
   const polishFiles=()=>{
-    requestAnimationFrame(animatePickerGeometry);
+    animatePickerGeometry();
     requestAnimationFrame(animatePresence);
     polishIcons();
     polishDrawers();
@@ -243,7 +248,7 @@
             modeTimer=setTimeout(()=>{
                 workspace.classList.remove('mode-transitioning');
                 reference.querySelectorAll('.studio-reference-audio').forEach(el=>pickerGeometry.delete(el));
-                requestAnimationFrame(animatePickerGeometry);
+                animatePickerGeometry();
             },matchMedia('(prefers-reduced-motion: reduce)').matches?0:260);
             workspace.classList.toggle('generate-mode', generate);
             reference.inert = generate;

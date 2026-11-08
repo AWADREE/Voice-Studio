@@ -629,7 +629,7 @@ def build_ui():
                             gr.Markdown('## Load voice & generate')
                             gr.Markdown('Use an existing .pt voice to create commentary.', elem_classes=['section-note'])
                             voice = gr.File(label='Voice file (.pt)', file_types=['.pt'], type='filepath', height=130, elem_classes=['studio-voice-input'])
-                            info = gr.Markdown(value='', elem_classes=['studio-output-status'], sanitize_html=True)
+                            info = gr.Markdown(value='', elem_classes=['studio-output-status'], elem_id='selected-voice-status', sanitize_html=True)
                             clone_busy=gr.State(False)
                             text, instruction, language, seed, release, identity, button, settings, commentary_mode, clip_entries = compose_controls(batch=True, clone_button=direct_preview,clone_busy=clone_busy)
                     with gr.Column(scale=1, min_width=0, elem_classes=['studio-panel','result-panel'], elem_id='listen-panel'):
