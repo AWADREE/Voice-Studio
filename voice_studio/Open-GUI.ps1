@@ -1,5 +1,7 @@
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
+$repo = Split-Path $root -Parent
+$env:PYTHONPATH = $repo + [IO.Path]::PathSeparator + $env:PYTHONPATH
 $python = if ($env:VOICE_STUDIO_PYTHON) { $env:VOICE_STUDIO_PYTHON } else { 'python' }
 $port = if ($env:VOICE_STUDIO_PORT) { $env:VOICE_STUDIO_PORT } else { '8003' }
 $url = "http://127.0.0.1:$port"
@@ -10,3 +12,4 @@ if (!$ready) {
 }
 if (!$ready) { throw "Voice Studio failed to start; inspect stderr.log" }
 Start-Process $url
+
