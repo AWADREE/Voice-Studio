@@ -9,3 +9,7 @@ Date: 2026-11-08. Isolated checkout and port; original installation untouched.
 - Personal voice/audio/model/cache/settings/logs excluded from tracked contents. The authorized original generated background and matching animation are included, with portable asset URLs.
 
 These checks establish execution and wiring, not subjective voice quality or that the experimental delivery prompt always works. Full manual browser verification of every waveform/trim/microphone interaction remains necessary before replacing a live installation. Existing installation and launcher remain available and were not switched.
+
+## Original-theme publication verification
+
+Owner-authorized original generated raster matches the existing installation byte-for-byte (SHA256 6f3367fb6c206e4b79c85ebd7945083b7d06988fe07713f07a3c0c4b995721a3), with no embedded PNG metadata. A clean tracked-only checkout passed all 44 Python tests, the tab-transition test, and 2,121 bounded-art-drift geometry cases. The original theme is now self-contained and does not require ignored local assets. Personal runtime data remains excluded.
