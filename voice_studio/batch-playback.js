@@ -5,9 +5,16 @@
   // WaveSurfer puts its native audio element in an open shadow root. Use that
   // media API rather than translated Play/Pause labels or private Gradio state.
   function mediaIn(root){
-    const direct=root.querySelector('audio');if(direct)return direct;
-    for(const node of root.querySelectorAll('*'))if(node.shadowRoot){const media=mediaIn(node.shadowRoot);if(media)return media;}
-    return null;
+    const candidates=[];
+    function collect(scope){
+      candidates.push(...scope.querySelectorAll('audio'));
+      for(const node of scope.querySelectorAll('*'))if(node.shadowRoot)collect(node.shadowRoot);
+    }
+    collect(root);
+    // Gradio also renders an unsourced light-DOM audio placeholder. It accepts
+    // play() but cannot produce sound; select the sourced WaveSurfer media.
+    const sourced=candidates.filter(media=>media.currentSrc||media.getAttribute('src')||media.querySelector('source[src]'));
+    return sourced.sort((a,b)=>b.readyState-a.readyState)[0]||null;
   }
   function sameSequence(){const current=players();return current.length===sequence.length&&current.every((node,i)=>node===sequence[i]);}
   function clearActive(){if(active)active.media.removeEventListener('ended',active.end);active=null;}
