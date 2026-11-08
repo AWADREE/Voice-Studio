@@ -12,8 +12,8 @@ class GenerationUiTests(unittest.TestCase):
  def test_native_players_and_always_cleanup(self):
   source=open(app.__file__,encoding='utf-8').read()
   self.assertIn("player=gr.Audio(",source);self.assertIn('player.stop(',source)
-  self.assertIn('.then(generation_finished',source)
-  self.assertNotIn('.success(generation_finished',source)
+  self.assertIn('.then(generation_completed',source)
+  self.assertNotIn('.success(generation_completed',source)
  def test_failure_preserves_outputs_and_reports_error(self):
   from unittest.mock import patch
   with patch.object(app,'generate_commentary_mode',side_effect=RuntimeError('test failure')):

@@ -337,7 +337,7 @@ def compose_controls(batch=False, clone_button=None, clone_busy=None):
                 entries = gr.HTML([{'minutes':0,'seconds':0,'text':''}], html_template=ui_asset_text('clip-editor.html'), js_on_load=ui_asset_text('paragraph-timing.js')+'\n'+ui_asset_text('clip-editor.js'), elem_id='clip-editor', css_template=ui_asset_text('clip-editor.css'))
         single_tab.select(lambda busy:('single',gr.skip() if busy else gr.update(interactive=True,value='Clone reference & generate commentary')), inputs=clone_busy,outputs=[mode,clone_button], queue=False, api_name=False)
         batch_tab.select(lambda busy:('batch',gr.skip() if busy else gr.update(interactive=False,value='Switch to Single commentary to clone')), inputs=clone_busy,outputs=[mode,clone_button], queue=False, api_name=False)
-    button = gr.Button('Generate commentary', variant='primary', elem_classes=['primary-action'], elem_id='generate-commentary' if batch else None)
+    button = gr.Button('Generate commentary', variant='primary', elem_classes=['primary-action'], elem_id='generate-commentary' if batch else None,interactive=not batch,preserved_by_key=['value','interactive'])
     return (text, instruction, language, seed, release, identity, button, settings, mode, entries) if batch else (text, instruction, language, seed, release, identity, button, settings)
 
 
@@ -512,6 +512,33 @@ def generate_commentary_ui(*args, progress=gr.Progress()):
         return tuple(updates)
 
 
+def commentary_ready(mode, rows, voice, text, busy=False, cloning=False, *settings):
+    if busy or cloning or not voice or not str(voice).lower().endswith('.pt'):
+        return False
+    try:
+        generation_options(settings)
+        if mode=='batch':
+            from batch_generation import validate_entries
+            validate_entries(rows)
+        elif not isinstance(text,str) or not 1<=len(text.strip())<=2000:
+            return False
+        return True
+    except (TypeError,ValueError,OverflowError):
+        return False
+
+
+def update_generate_readiness(*args):
+    return gr.update(interactive=commentary_ready(*args))
+
+
+def generation_started_with_state():
+    return gr.update(interactive=False,value='Generating commentary...'),gr.update(value='',visible=False),True
+
+
+def generation_completed(mode,rows,voice,text,cloning,*settings):
+    return gr.update(interactive=commentary_ready(mode,rows,voice,text,False,cloning,*settings),value='Generate commentary'),gr.update(value='',visible=False),False
+
+
 def generation_started():
     return gr.update(interactive=False,value='Generating commentary...'), gr.update(value='<div class="studio-generation-running" role="status" aria-live="polite"><span class="studio-generation-spinner" aria-hidden="true"></span><span>Generating commentary. Please wait...</span></div>',visible=True)
 
@@ -598,6 +625,7 @@ def build_ui():
                             clone_busy=gr.State(False)
                             text, instruction, language, seed, release, identity, button, settings, commentary_mode, clip_entries = compose_controls(batch=True, clone_button=direct_preview,clone_busy=clone_busy)
                     with gr.Column(scale=1, min_width=0, elem_classes=['studio-panel','result-panel'], elem_id='listen-panel'):
+                        generation_busy=gr.State(False)
                         generation_notice = gr.HTML('',visible=False,elem_id='generation-notice')
                         audio, download, status = output_controls()
                         batch_result = gr.State(None)
@@ -629,7 +657,8 @@ def build_ui():
                 voice.clear(select_uploaded_voice,[voice],[info],api_name=False,queue=False)
                 use_correction.input(lambda: False, outputs=preview_confirm, api_name=False, queue=False)
                 correction.input(lambda: False, outputs=preview_confirm, api_name=False, queue=False)
-                button.click(generation_started, outputs=[button,generation_notice],queue=False,api_name=False).then(generate_commentary_ui, [commentary_mode,clip_entries,voice,text,instruction,language,seed,release,identity,*settings], [audio,download,status,preview_state,preview_transcript,preview_confirm,preview_actions,correction,preview_file,preview_status,use_correction,batch_result,batch_panel,batch_status,batch_zip], api_name='generate_commentary', concurrency_limit=1,show_progress='hidden').then(generation_finished,outputs=[button,generation_notice],queue=False,api_name=False)
+                button.click(generation_started_with_state, outputs=[button,generation_notice,generation_busy],queue=False,api_name=False).then(generate_commentary_ui, [commentary_mode,clip_entries,voice,text,instruction,language,seed,release,identity,*settings], [audio,download,status,preview_state,preview_transcript,preview_confirm,preview_actions,correction,preview_file,preview_status,use_correction,batch_result,batch_panel,batch_status,batch_zip], api_name='generate_commentary', concurrency_limit=1,show_progress='full').then(generation_completed,inputs=[commentary_mode,clip_entries,voice,text,clone_busy,*settings],outputs=[button,generation_notice,generation_busy],queue=False,api_name=False)
+                gr.on(triggers=[voice.change,text.change,clip_entries.change,commentary_mode.change,clone_busy.change,generation_busy.change]+[control.change for control in settings],fn=update_generate_readiness,inputs=[commentary_mode,clip_entries,voice,text,generation_busy,clone_busy,*settings],outputs=button,queue=False,api_name=False)
                 # Preserve the existing single-clip API for integrations.
                 legacy_generate = gr.Button(visible=False)
                 legacy_generate.click(generate_preview_atomic, [voice,text,instruction,language,seed,release,identity,*settings], [audio,download,status,preview_state,preview_transcript,preview_confirm,preview_actions,correction,preview_file,preview_status,use_correction], api_name='generate', concurrency_limit=1)
@@ -682,6 +711,7 @@ def build_ui():
         app.load(fn=None, js=ui_asset_text('batch-playback.js'))
         app.load(fn=None, js=ui_asset_text('commentary-tabs.js'))
         app.load(fn=None, js=ui_asset_text('operation-feedback.js'))
+        app.load(fn=None, js=ui_asset_text('generation-readiness.js'))
     return app
 
 if __name__ == '__main__':

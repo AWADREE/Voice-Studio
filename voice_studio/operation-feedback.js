@@ -3,7 +3,8 @@
   window.voiceStudioOperationFeedback=true;
   const refresh=()=>{
     document.querySelectorAll('button').forEach(button=>{
-      const busy=button.disabled && /^(Generating commentary|Cloning & generating|Saving voice|Saving new voice|Unloading model|Saving folder)\.\.\.$/.test(button.textContent.trim());
+      const busy=/^(Generating commentary|Cloning & generating|Saving voice|Saving new voice|Unloading model|Saving folder)\.\.\.$/.test(button.textContent.trim());
+      if(busy&&!button.disabled)button.disabled=true;
       if(button.getAttribute('aria-busy')!==String(busy))button.setAttribute('aria-busy',String(busy));
       button.classList.toggle('studio-operation-busy',busy);
     });
