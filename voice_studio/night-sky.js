@@ -69,14 +69,15 @@
     const panelStyle=panel&&getComputedStyle(panel);
     const fromTransform=panelStyle?.transform||'translateX(0)';
     const fromOpacity=panelStyle?.opacity||'1';
-    const backdropOpacity=backdrop?getComputedStyle(backdrop).opacity:'1';
+    const dimColor=getComputedStyle(dialog).backgroundColor;
     old?.forEach(a=>a.cancel());
     if(!panel||matchMedia('(prefers-reduced-motion: reduce)').matches){done?.();return;}
     const timing={duration:180,easing:'cubic-bezier(.2,.8,.2,1)',fill:closing?'forwards':'none'};
     const animation=panel.animate(closing?[{transform:fromTransform,opacity:fromOpacity},{transform:'translateX(100%)',opacity:0}]:[{transform:'translateX(100%)',opacity:0},{transform:'translateX(0)',opacity:1}],timing);
-    const veil=backdrop?.animate(closing?[{opacity:backdropOpacity},{opacity:0}]:[{opacity:0},{opacity:1}],timing);
+    // Gradio paints the full-page dim layer on the dialog itself; .backdrop is only a transparent click target.
+    const veil=dialog.animate(closing?[{backgroundColor:dimColor},{backgroundColor:'rgba(0,0,0,0)'}]:[{backgroundColor:'rgba(0,0,0,0)'},{backgroundColor:dimColor}],timing);
     drawerAnimations.set(dialog,[animation,...(veil?[veil]:[])]);
-    const samples=[];const sample=()=>{samples.push({x:Math.round(panel.getBoundingClientRect().x),overlay:backdrop?Number(getComputedStyle(backdrop).opacity):null});if(animation.playState==='running')requestAnimationFrame(sample);else document.documentElement.dataset.drawerMotion=JSON.stringify({closing,samples});};requestAnimationFrame(sample);
+    const samples=[];const sample=()=>{samples.push({x:Math.round(panel.getBoundingClientRect().x),overlay:getComputedStyle(dialog).backgroundColor});if(animation.playState==='running')requestAnimationFrame(sample);else document.documentElement.dataset.drawerMotion=JSON.stringify({closing,samples});};requestAnimationFrame(sample);
     animation.onfinish=()=>{drawerAnimations.delete(dialog);done?.();};
   }
   function polishDrawers(){
