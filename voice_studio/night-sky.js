@@ -73,7 +73,7 @@
     old?.forEach(a=>a.cancel());
     if(!panel||matchMedia('(prefers-reduced-motion: reduce)').matches){done?.();return;}
     const timing={duration:180,easing:'cubic-bezier(.2,.8,.2,1)',fill:closing?'forwards':'none'};
-    const animation=panel.animate(closing?[{transform:fromTransform,opacity:fromOpacity},{transform:'translateX(100%)',opacity:0}]:[{transform:'translateX(100%)',opacity:0},{transform:'translateX(0)',opacity:1}],timing);
+    const animation=panel.animate(closing?[{transform:fromTransform,opacity:fromOpacity},{transform:'translateX(-100%)',opacity:0}]:[{transform:'translateX(-100%)',opacity:0},{transform:'translateX(0)',opacity:1}],timing);
     // Gradio paints the full-page dim layer on the dialog itself; .backdrop is only a transparent click target.
     const veil=dialog.animate(closing?[{backgroundColor:dimColor},{backgroundColor:'rgba(0,0,0,0)'}]:[{backgroundColor:'rgba(0,0,0,0)'},{backgroundColor:dimColor}],timing);
     drawerAnimations.set(dialog,[animation,...(veil?[veil]:[])]);

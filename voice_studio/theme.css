@@ -350,3 +350,7 @@ button.studio-operation-busy::before {content:"";display:inline-block;width:12px
 .gradio-container :is(button,input,select,textarea):disabled,
 .gradio-container [aria-disabled="true"],.gradio-container [aria-busy="true"] {cursor:default!important;}
 .gradio-container button:not(:disabled) {cursor:pointer!important;}
+
+/* Main utility drawers enter from the left; preserve Gradio responsive widths. */
+.api-docs[role="dialog"]{flex-direction:row-reverse!important;left:0!important;right:0!important;width:auto!important}
+.api-docs[role="dialog"] .api-docs-wrap{max-width:100%;box-sizing:border-box}

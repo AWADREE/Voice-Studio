@@ -57,3 +57,6 @@ Browser verified Settings outside/Escape and API outside/close paths, with backd
 
 ### Corrected full-page dim layer target
 Correction to the preceding drawer verification: Gradio's `.backdrop` is a transparent click target. Actual dimming is painted by the full-page `.api-docs` background. The animation now changes that background alpha, independently of the sliding panel. Verified on real app8017: Settings dim alpha0.5→0.176→0.035→0.004→removed; API0.5→0.098→0.035→0.004→removed. Both restore focus to opener. Earlier8016 only faded the transparent target; it is not the corrected version.8017 is the latest real preview, opened without stopping8014 or8016 or refreshing user inputs.
+
+### Left-side utility drawers
+Both utility drawers now anchor at the left edge and translate from/to -100%, retaining actual full-page dim fade, click/Escape dismissal, focus return and reduced-motion handling. Browser frames verified x=-1150→-402→-77→0 entering, x=0→-923→-1106 exiting. Both drawers fit a390px viewport without overflowing; viewport restored afterward. Latest real preview8018 opened without restarting older sessions.
