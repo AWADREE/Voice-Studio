@@ -691,6 +691,14 @@ def build_ui():
             gr.Markdown('Generation settings are per workflow. GPU memory release and the random seed are inside each Generation settings section. Click a storage directory to browse local folders and choose its replacement. Choices persist after restart and affect future saves only; existing files are never moved. Model/checkpoint stay read-only.')
         with gr.Accordion('Storage & GPU help', open=False, elem_classes=['generation-settings','studio-help']):
             gr.Markdown('**Compare delivery:** try an empty instruction, then the same text and seed with a direction.\n\n**Local storage:** audio and settings are in `Outputs`; saved voices are in `Voices`.\n\n**GPU memory:** stop other Qwen servers before generating. Closing their tabs does not unload models.')
+        with gr.Accordion('Use via API', open=False, elem_classes=['generation-settings','studio-help','studio-utility-section'], elem_id='inline-api-section') as api_section:
+            gr.HTML('<div id="inline-api-host" class="studio-utility-host"></div>')
+        with gr.Accordion('Settings', open=False, elem_classes=['generation-settings','studio-help','studio-utility-section'], elem_id='inline-settings-section') as settings_section:
+            gr.HTML('<div id="inline-settings-host" class="studio-utility-host"></div>')
+        api_section.expand(fn=None,js="() => window.voiceStudioUtilities?.open('api')",api_name=False)
+        api_section.collapse(fn=None,js="() => window.voiceStudioUtilities?.close('api')",api_name=False)
+        settings_section.expand(fn=None,js="() => window.voiceStudioUtilities?.open('settings')",api_name=False)
+        settings_section.collapse(fn=None,js="() => window.voiceStudioUtilities?.close('settings')",api_name=False)
         with gr.Column(visible=False,elem_id='storage-picker-dialog') as folder_dialog:
             gr.Markdown('## Choose a storage folder')
             gr.Markdown('Local folders only. Choosing a folder affects future saves; existing files stay where they are.')
@@ -720,6 +728,7 @@ def build_ui():
         app.load(fn=None, js=ui_asset_text('commentary-tabs.js'))
         app.load(fn=None, js=ui_asset_text('operation-feedback.js'))
         app.load(fn=None, js=ui_asset_text('generation-readiness.js'))
+        app.load(fn=None, js=ui_asset_text('inline-utilities.js'))
     return app
 
 if __name__ == '__main__':

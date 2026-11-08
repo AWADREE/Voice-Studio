@@ -81,6 +81,7 @@
     animation.onfinish=()=>{drawerAnimations.delete(dialog);done?.();};
   }
   function polishDrawers(){
+    if(document.getElementById('inline-api-section'))return;
     document.querySelectorAll('.api-docs[role=dialog]').forEach(d=>{
       const closeNow=d.querySelector('.banner-wrap > button');if(closeNow)closeNow.setAttribute('aria-label','Close panel');
       if(d.dataset.studioDrawer)return;d.dataset.studioDrawer='true';
@@ -97,7 +98,7 @@
     });
   }
   document.addEventListener('keydown',e=>{
-    if(e.key!=='Escape')return;
+    if(e.key!=='Escape'||document.getElementById('inline-api-section'))return;
     const drawer=document.querySelector('.api-docs[role=dialog]');
     if(!drawer||drawer.dataset.allowClose)return;
     e.preventDefault();e.stopImmediatePropagation();drawer.querySelector('.banner-wrap > button')?.click();

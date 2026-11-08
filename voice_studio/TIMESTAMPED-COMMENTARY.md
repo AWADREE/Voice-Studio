@@ -60,3 +60,8 @@ Correction to the preceding drawer verification: Gradio's `.backdrop` is a trans
 
 ### Left-side utility drawers
 Both utility drawers now anchor at the left edge and translate from/to -100%, retaining actual full-page dim fade, click/Escape dismissal, focus return and reduced-motion handling. Browser frames verified x=-1150→-402→-77→0 entering, x=0→-923→-1106 exiting. Both drawers fit a390px viewport without overflowing; viewport restored afterward. Latest real preview8018 opened without restarting older sessions.
+
+## Inline native utility sections (2026-11-08)
+Use via API and Settings now mount the original native Gradio components inside the existing animated accordion design at the page end. Native controls and API documentation are retained, not recreated. Collapsing retains their state; native recorder-triggered close remains supported. Duplicate footer triggers are hidden, but recording stop controls remain available.
+
+Verification: 83 Python tests and seven JavaScript suites passed. Browser verified both sections rendered original content, API JavaScript tab updated examples, settings checkbox state survived collapse/reopen, native close binding and footer hiding. Fixed cross-observer feedback and asynchronous API banner binding discovered during testing. No GPU generation, screen recording, PWA installation or theme-navigation test was performed. Frame-by-frame animation measurement was not completed (browser read-only evaluation lacks requestAnimationFrame); existing accordion CSS and reduced-motion rules are reused. Final pending-open guard is unit tested, not yet freshly browser tested. Preview 8019 is isolated; earlier user previews remain untouched.
