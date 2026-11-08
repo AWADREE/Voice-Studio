@@ -13,3 +13,5 @@ These checks establish execution and wiring, not subjective voice quality or tha
 ## Original-theme publication verification
 
 Owner-authorized original generated raster matches the existing installation byte-for-byte (SHA256 6f3367fb6c206e4b79c85ebd7945083b7d06988fe07713f07a3c0c4b995721a3), with no embedded PNG metadata. A clean tracked-only checkout passed all 44 Python tests, the tab-transition test, and 2,121 bounded-art-drift geometry cases. The original theme is now self-contained and does not require ignored local assets. Personal runtime data remains excluded.
+
+Clean-checkout headless Chrome verification passed: original raster and all three fonts HTTP 200 from that checkout, original celestial background visually inspected, Clone/Generate tabs functional, zero page JavaScript errors. Verification server stopped afterward.
