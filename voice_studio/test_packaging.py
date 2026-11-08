@@ -7,11 +7,13 @@ class PackagingTests(unittest.TestCase):
         self.assertIn((app.ROOT/'assets').as_posix(),css)
         self.assertNotIn('__VOICE_STUDIO_ASSETS__',css)
         self.assertNotIn('E:/AI/Apps/',css)
-    def test_public_theme_does_not_require_private_art(self):
-        js=(app.ROOT/'night-sky.js').read_text()
+    def test_authorized_theme_is_self_contained(self):
+        js=app.ui_asset_text('night-sky.js')
+        self.assertIn('night-sky-stars-removed.png',js)
+        self.assertIn('starCyclePeak',js)
+        self.assertTrue((app.ROOT/'assets'/'night-sky-stars-removed.png').is_file())
         self.assertNotIn('local-background',js)
-        self.assertNotIn('starCyclePeak',js)
-        self.assertIn('Original procedural backdrop',js)
+        self.assertNotIn('E:/AI/Apps/',js)
     def test_model_cache_is_configurable(self):
         import os
         if os.environ.get('HF_HOME') and not os.environ.get('VOICE_STUDIO_MODEL_CACHE'):

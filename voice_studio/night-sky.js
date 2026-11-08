@@ -212,23 +212,296 @@
         });
     }
 
-    // Original procedural backdrop for this distributable UI. No borrowed artwork.
+    if (window.__qwenSkyCleanup)
+        window.__qwenSkyCleanup();
+    document.querySelectorAll('.star-sky,.sky-twinkles').forEach(e => e.remove());
     document.documentElement.classList.add('dark');
-    document.querySelectorAll('.star-sky,.sky-twinkles').forEach(e=>e.remove());
-    if(window.__qwenSkyCleanup)window.__qwenSkyCleanup();
-    const c=document.createElement('canvas');c.className='star-sky';document.body.appendChild(c);
-    const ctx=c.getContext('2d'), reduced=matchMedia('(prefers-reduced-motion: reduce)');
-    const stars=Array.from({length:180},()=>({x:Math.random(),y:Math.random(),r:.4+Math.random()*1.1,p:Math.random()*6.28}));
-    let frame=0,last=0;
-    function paint(t){
-      const w=innerWidth,h=innerHeight,d=Math.min(devicePixelRatio||1,2);
-      if(c.width!==Math.round(w*d)||c.height!==Math.round(h*d)){c.width=Math.round(w*d);c.height=Math.round(h*d);}
-      ctx.setTransform(d,0,0,d,0,0);
-      const g=ctx.createLinearGradient(0,0,w,h);g.addColorStop(0,'#060d19');g.addColorStop(.6,'#101d32');g.addColorStop(1,'#080e19');ctx.fillStyle=g;ctx.fillRect(0,0,w,h);
-      for(const s of stars){ctx.fillStyle=`rgba(190,214,237,${reduced.matches?.35:.25+.15*Math.sin(t/5000+s.p)})`;ctx.beginPath();ctx.arc(s.x*w,s.y*h,s.r,0,Math.PI*2);ctx.fill();}
+    /** Stable seeded variation: hydration matches, each star/cycle gets a distinct bounded peak. */
+    function starCyclePeak(star, cycle) { let n = Math.imul(star + 1, 374761393) ^ Math.imul(cycle + 1, 668265263); n = Math.imul(n ^ (n >>> 13), 1274126177); return .46 + (((n ^ (n >>> 16)) >>> 0) / 4294967295) * .44; }
+    function starTwinkleAlpha(star, time, period, phase, reduced) { if (reduced)
+        return .35; const position = time / period + phase; const cycle = Math.floor(position), fraction = position - cycle; return .12 + (starCyclePeak(star, cycle) - .12) * (.5 - .5 * Math.cos(2 * Math.PI * fraction)); }
+    const SKY_STAR_COUNT = 750;
+    function starInitialPhase(star) { return Math.min(.999999, (starCyclePeak(star + 729, 17) - .46) / .44); }
+    /** Find compact bright sources; broad luminous gas is deliberately excluded. */
+    function findRasterStars(data, width, height) {
+        const visited = new Uint8Array(width * height), stars = [];
+        const bright = (i) => data[i * 4 + 3] > 0 && (.2126 * data[i * 4] + .7152 * data[i * 4 + 1] + .0722 * data[i * 4 + 2]) > 118;
+        for (let i = 0; i < width * height; i++) {
+            if (visited[i] || !bright(i))
+                continue;
+            const queue = [i];
+            visited[i] = 1;
+            let sumX = 0, sumY = 0, minX = width, maxX = 0, minY = height, maxY = 0;
+            for (let at = 0; at < queue.length; at++) {
+                const j = queue[at], x = j % width, y = Math.floor(j / width);
+                sumX += x;
+                sumY += y;
+                minX = Math.min(minX, x);
+                maxX = Math.max(maxX, x);
+                minY = Math.min(minY, y);
+                maxY = Math.max(maxY, y);
+                for (const [nx, ny] of [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]]) {
+                    if (nx < 0 || ny < 0 || nx >= width || ny >= height)
+                        continue;
+                    const k = ny * width + nx;
+                    if (!visited[k] && bright(k)) {
+                        visited[k] = 1;
+                        queue.push(k);
+                    }
+                }
+            }
+            if (queue.length > 90 || maxX - minX > 18 || maxY - minY > 18)
+                continue;
+            const x = sumX / queue.length, y = sumY / queue.length, seed = ((Math.round(x) * 73856093) ^ (Math.round(y) * 19349663)) >>> 0;
+            stars.push({ x, y, radius: Math.max(2, Math.min(11, Math.max(maxX - minX, maxY - minY) * .7 + 2)), phase: (seed % 6283) / 1000, period: 12000 + seed % 14000 });
+        }
+        return stars;
     }
-    function tick(t){if(document.hidden)return;if(t-last>40){paint(t);last=t;}if(!reduced.matches)frame=requestAnimationFrame(tick);}
-    function refresh(){cancelAnimationFrame(frame);paint(0);if(!document.hidden&&!reduced.matches)frame=requestAnimationFrame(tick);}
-    window.addEventListener('resize',refresh);document.addEventListener('visibilitychange',refresh);reduced.addEventListener('change',refresh);refresh();
-    window.__qwenSkyCleanup=()=>{cancelAnimationFrame(frame);window.removeEventListener('resize',refresh);document.removeEventListener('visibilitychange',refresh);reduced.removeEventListener('change',refresh);c.remove();};
+    /** Always retains at least22% of the original core; independent8ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“16s cycles, no positional motion. */
+    function rasterStarDimming(star, time, reduced) { return reduced ? 0 : .39 * (1 + Math.sin(time * Math.PI * 2 / star.period + star.phase)); }
+    function drawRasterShimmer(context, stars, time, reduced, scaleX, scaleY) {
+        if (reduced)
+            return;
+        for (const [index, star] of stars.entries()) {
+            const amount = rasterStarDimming(star, time, false), x = star.x * scaleX, y = star.y * scaleY, r = star.radius * Math.max(scaleX, scaleY);
+            const mask = context.createRadialGradient(x, y, 0, x, y, r);
+            mask.addColorStop(0, 'rgba(0,0,0,' + amount + ')');
+            mask.addColorStop(.35, 'rgba(0,0,0,' + amount * .8 + ')');
+            mask.addColorStop(1, 'rgba(0,0,0,0)');
+            void mask;
+            const bloom = context.createRadialGradient(x, y, 0, x, y, r * 1.3);
+            const light = starTwinkleAlpha(index, time, star.period, star.phase / (Math.PI * 2), false) * .4;
+            bloom.addColorStop(0, 'rgba(225,240,255,' + light + ')');
+            bloom.addColorStop(.25, 'rgba(180,215,255,' + light * .35 + ')');
+            bloom.addColorStop(1, 'rgba(180,215,255,0)');
+            context.fillStyle = bloom;
+            context.fillRect(x - r * 1.3, y - r * 1.3, r * 2.6, r * 2.6);
+        }
+    }
+    function skyRandom(i, salt) { let n = Math.imul(i + 1, 374761393) ^ salt; n = Math.imul(n ^ (n >>> 13), 1274126177); return ((n ^ (n >>> 16)) >>> 0) / 4294967295; }
+    const canvas = document.createElement('canvas');
+    canvas.className = 'star-sky';
+    document.body.appendChild(canvas);
+    const context = canvas?.getContext('2d', { alpha: false });
+    const overlay = document.createElement('canvas');
+    overlay.className = 'star-sky star-sky--shimmer';
+    document.body.appendChild(overlay);
+    const shimmer = overlay?.getContext('2d');
+    if (!canvas || !context || !overlay || !shimmer)
+        return;
+    const motion = matchMedia('(prefers-reduced-motion: reduce)');
+    let width = 0, height = 0, frame = 0, resizeFrame = 0, last = 0;
+    let stars = [];
+    const sky = document.createElement('canvas');
+    const skyContext = sky.getContext('2d', { alpha: false });
+    if (!skyContext)
+        return;
+    // ART_DRIFT_GEOMETRY_BEGIN
+    function artCoverBounds(vw,vh,iw,ih){
+      const scale=Math.max(vw/iw,vh/ih)*1.08;
+      const w=iw*scale,h=ih*scale;
+      return {w,h,x:Math.max(0,Math.min(48,(w-vw)/2-2)),y:Math.max(0,Math.min(48,(h-vh)/2-2))};
+    }
+    function artEase(t){return t*t*t*(t*(t*6-15)+10);}
+    // ART_DRIFT_GEOMETRY_END
+    let driftFrom={x:0,y:0},driftTo={x:0,y:0},driftPos={x:0,y:0};
+    let driftElapsed=0,driftDuration=0,driftLast=0,driftDiagnostic=0;
+    function nextDrift(){
+      driftFrom={...driftPos};
+      driftTo={x:(Math.random()*2-1)*.9,y:(Math.random()*2-1)*.9};
+      // Quintic derivative peaks at1.875; this duration caps planar speed .70px/s
+      // even at maximum48px bounds and after resizing.
+      const distance=Math.hypot(driftTo.x-driftFrom.x,driftTo.y-driftFrom.y)*48;
+      driftDuration=Math.max(60000+Math.random()*45000,distance*1.875/.70*1000);
+      driftElapsed=0;
+    }
+    nextDrift();
+    function driftArtwork(time){
+      const bounds=artCoverBounds(width,height,image.naturalWidth,image.naturalHeight);
+      if(!motion.matches&&!document.hidden&&time>0){
+        if(driftLast)driftElapsed+=Math.min(100,Math.max(0,time-driftLast));
+        driftLast=time;
+        if(driftElapsed>=driftDuration){driftPos={...driftTo};nextDrift();}
+        const e=artEase(Math.min(1,driftElapsed/driftDuration));
+        driftPos={x:driftFrom.x+(driftTo.x-driftFrom.x)*e,y:driftFrom.y+(driftTo.y-driftFrom.y)*e};
+      }
+      const x=(width-bounds.w)/2+driftPos.x*bounds.x;
+      const y=(height-bounds.h)/2+driftPos.y*bounds.y;
+      context.drawImage(image,x,y,bounds.w,bounds.h);
+      if(time-driftDiagnostic>1000||time===0){
+        canvas.dataset.artDrift=JSON.stringify({x,y,w:bounds.w,h:bounds.h,vw:width,vh:height,bx:bounds.x,by:bounds.y,elapsed:driftElapsed,duration:driftDuration});driftDiagnostic=time;
+      }
+    }
+    const image = new Image();
+    let imageReady = false;
+    let rasterStars = [];
+    let disposed = false;
+    let seed = 91473;
+    const random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; };
+    const hash = (x, y) => {
+        let n = Math.imul(x, 374761393) + Math.imul(y, 668265263);
+        n = Math.imul(n ^ (n >>> 13), 1274126177);
+        return ((n ^ (n >>> 16)) >>> 0) / 4294967295;
+    };
+    const noise = (x, y) => {
+        const ix = Math.floor(x), iy = Math.floor(y);
+        const a = x - ix, b = y - iy, u = a * a * (3 - 2 * a), v = b * b * (3 - 2 * b);
+        return (hash(ix, iy) * (1 - u) + hash(ix + 1, iy) * u) * (1 - v)
+            + (hash(ix, iy + 1) * (1 - u) + hash(ix + 1, iy + 1) * u) * v;
+    };
+    const fractal = (x, y) => noise(x, y) * .53 + noise(x * 2.07, y * 2.07) * .27
+        + noise(x * 4.13, y * 4.13) * .13 + noise(x * 8.3, y * 8.3) * .07;
+    function rebuild() {
+        width = Math.max(1, window.innerWidth);
+        height = Math.max(1, window.innerHeight);
+        const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+        canvas.width = Math.round(width * dpr);
+        canvas.height = Math.round(height * dpr);
+        context.setTransform(dpr, 0, 0, dpr, 0, 0);
+        overlay.width = canvas.width;
+        overlay.height = canvas.height;
+        shimmer.setTransform(dpr, 0, 0, dpr, 0, 0);
+        // Cache the expensive gas field at a bounded resolution; animate only stars.
+        sky.width = Math.min(760, Math.round(width));
+        sky.height = Math.min(600, Math.max(1, Math.round(sky.width * height / width)));
+        if (imageReady) {
+            // Cache cover composition at capped display resolution to retain tiny asset stars.
+            sky.width = canvas.width;
+            sky.height = canvas.height;
+            const scale = Math.max(sky.width / image.naturalWidth, sky.height / image.naturalHeight);
+            const imageWidth = image.naturalWidth * scale, imageHeight = image.naturalHeight * scale;
+            skyContext.drawImage(image, (sky.width - imageWidth) / 2, (sky.height - imageHeight) / 2, imageWidth, imageHeight);
+        }
+        else {
+            const pixels = skyContext.createImageData(sky.width, sky.height);
+            const aspect = width / height;
+            for (let y = 0; y < sky.height; y++)
+                for (let x = 0; x < sky.width; x++) {
+                    const nx = x / sky.width, ny = y / sky.height;
+                    const px = nx * Math.min(aspect, 2.5) * 4.3, py = ny * 4.3;
+                    const warp = fractal(px * .85 + 8, py * .85 + 4);
+                    const diagonal = ny + nx * .62;
+                    const ribbon = Math.exp(-Math.pow((diagonal - 1.04 + (warp - .5) * .27) / .075, 2))
+                        + .65 * Math.exp(-Math.pow((diagonal - 1.63 + (warp - .5) * .22) / .065, 2));
+                    const filaments = Math.pow(Math.max(0, 1 - Math.abs(fractal(px * 3 + warp * 4, py * 3) - .51) * 7), 3);
+                    const cloud = ribbon * (.12 + filaments * .88) * (.3 + fractal(px + 31, py + 17));
+                    const purple = noise(px * .6 + 22, py * .6 + 5);
+                    const dust = Math.pow(fractal(px * 2 + 40, py * 2), 2);
+                    const amount = cloud * (1 - dust * .8);
+                    const index = (y * sky.width + x) * 4;
+                    pixels.data[index] = 2 + amount * (24 + purple * 46);
+                    pixels.data[index + 1] = 6 + amount * (42 - purple * 17);
+                    pixels.data[index + 2] = 12 + amount * (91 + purple * 20);
+                    pixels.data[index + 3] = 255;
+                }
+            skyContext.putImageData(pixels, 0, 0);
+        }
+        rasterStars = imageReady ? findRasterStars(skyContext.getImageData(0, 0, sky.width, sky.height).data, sky.width, sky.height) : [];
+        seed = 91473;
+        const count = Math.min(300, Math.max(150, Math.round(width * height / 6500)));
+        stars = Array.from({ length: count }, () => {
+            const bright = random();
+            return { x: random() * width, y: random() * height, radius: bright > .99 ? .95 : .22 + random() * .48,
+                phase: random() * Math.PI * 2, speed: .24 + random() * .66, alpha: .22 + random() * .5,
+                cross: false, cyan: random() > .56 };
+        });
+        draw(0);
+    }
+    function draw(time) {
+        context.globalAlpha = 1;
+        if(imageReady)driftArtwork(time);else context.drawImage(sky, 0, 0, width, height);
+        shimmer.clearRect(0, 0, width, height);
+        drawRasterShimmer(shimmer, rasterStars, time, motion.matches, width / sky.width, height / sky.height);
+        for (const [starIndex, star] of stars.entries()) {
+            // Each point keeps a visible floor; no scene-wide opacity pulsing.
+            const shimmer = starTwinkleAlpha(starIndex, time, 12000 + (star.speed - .24) / .66 * 14000, star.phase / (Math.PI * 2), motion.matches);
+            context.globalAlpha = star.alpha * shimmer;
+            context.fillStyle = star.cyan ? '#b9ddff' : '#fff4ee';
+            context.beginPath();
+            context.arc(star.x, star.y, star.radius, 0, Math.PI * 2);
+            context.fill();
+            if (star.cross) {
+                const r = 4 + star.alpha * 4;
+                const halo = context.createRadialGradient(star.x, star.y, 0, star.x, star.y, r * 2);
+                halo.addColorStop(0, star.cyan ? '#82bcff88' : '#e4a8de77');
+                halo.addColorStop(1, '#00000000');
+                context.fillStyle = halo;
+                context.fillRect(star.x - r * 2, star.y - r * 2, r * 4, r * 4);
+                context.fillStyle = '#e7f2ff';
+                context.beginPath();
+                context.moveTo(star.x - r, star.y);
+                context.lineTo(star.x - .5, star.y - .5);
+                context.lineTo(star.x, star.y - r * .9);
+                context.lineTo(star.x + .5, star.y - .5);
+                context.lineTo(star.x + r, star.y);
+                context.lineTo(star.x + .5, star.y + .5);
+                context.lineTo(star.x, star.y + r * .9);
+                context.lineTo(star.x - .5, star.y + .5);
+                context.closePath();
+                context.fill();
+            }
+        }
+        context.globalAlpha = 1;
+    }
+    function tick(time) {
+        if (document.hidden || motion.matches) {
+            frame = 0;
+            return;
+        }
+        if (time - last >= 1000 / 24) {
+            draw(time);
+            last = time;
+        }
+        frame = requestAnimationFrame(tick);
+    }
+    function syncMotion() {
+        driftLast=0;
+        cancelAnimationFrame(frame);
+        frame = 0;
+        if (!document.hidden) {
+            draw(0);
+            if (!motion.matches)
+                frame = requestAnimationFrame(tick);
+        }
+    }
+    function resize() {
+        cancelAnimationFrame(resizeFrame);
+        resizeFrame = requestAnimationFrame(() => { rebuild(); });
+    }
+    image.onload = () => {
+        if (disposed)
+            return;
+        imageReady = true;
+        rebuild();
+        syncMotion();
+    };
+    // Failure intentionally leaves the original procedural loading fallback visible.
+    image.src = '__VOICE_STUDIO_ASSETS__/night-sky-stars-removed.png';
+    rebuild();
+    syncMotion();
+    window.addEventListener('resize', resize);
+    document.addEventListener('visibilitychange', syncMotion);
+    motion.addEventListener('change', syncMotion);
+    window.__qwenSkyCleanup = () => {
+        disposed = true;
+        image.onload = null;
+        cancelAnimationFrame(frame);
+        cancelAnimationFrame(resizeFrame);
+        window.removeEventListener('resize', resize);
+        document.removeEventListener('visibilitychange', syncMotion);
+        motion.removeEventListener('change', syncMotion);
+    };
+    const twinkles = document.createElement('div');
+    twinkles.className = 'sky-twinkles';
+    twinkles.setAttribute('aria-hidden', 'true');
+    for (let i = 0; i < SKY_STAR_COUNT; i++) {
+        const el = document.createElement('span');
+        el.className = 'sky-twinkle';
+        const period = 12 + skyRandom(i, 51731) * 14;
+        el.style.cssText = 'left:' + skyRandom(i, 91473) * 100 + '%;top:' + skyRandom(i, 78233) * 100 + '%;--twinkle-peak:' + starCyclePeak(i, 0) + ';--twinkle-period:' + period + 's;--twinkle-delay:' + (-starInitialPhase(i) * period) + 's;--twinkle-size:' + (i % 11 === 0 ? 4 : i % 3 === 0 ? 2.5 : 1.6) + 'px';
+        let cycle = 0;
+        el.addEventListener('animationiteration', () => el.style.setProperty('--twinkle-peak', String(starCyclePeak(i, ++cycle))));
+        twinkles.appendChild(el);
+    }
+    document.body.appendChild(twinkles);
 }

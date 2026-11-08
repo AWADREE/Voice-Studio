@@ -1,7 +1,7 @@
 const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
 const source=fs.readFileSync('night-sky.js','utf8');
 new Function('return '+source);
-const handler=source.slice(source.indexOf('const modeNav ='),source.indexOf('// Original procedural backdrop'));
+const handler=source.slice(source.indexOf('const modeNav ='),source.indexOf('if (window.__qwenSkyCleanup)'));
 for(const narrow of [false,true])for(const reduced of [false,true]){
  const classes=new Set();let timer,delay,cancelled=0,refreshed=0,listener;
  const buttons=['clone','generate'].map(mode=>({dataset:{voiceMode:mode},setAttribute(k,v){this[k]=v;}}));

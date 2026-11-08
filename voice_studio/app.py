@@ -22,8 +22,6 @@ from qwen_tts.inference.qwen3_tts_model import VoiceClonePromptItem
 MODEL_REPO = Path(os.environ.get('VOICE_STUDIO_MODEL_CACHE', str(Path(os.environ.get('HF_HOME', str(Path.home()/'.cache'/'huggingface')))/'hub'/'models--Qwen--Qwen3-TTS-12Hz-1.7B-Base')))
 
 def ui_asset_text(name):
-    if name == 'night-sky.js' and os.environ.get('VOICE_STUDIO_LOCAL_THEME') == '1':
-        name = 'local-night-sky.js'
     return (ROOT/name).read_text(encoding='utf-8-sig').replace('__VOICE_STUDIO_ASSETS__', '/gradio_api/file='+ (ROOT/'assets').as_posix())
 from storage_locations import StorageLocations, require_local_ui, choose_folder
 STORAGE = StorageLocations(ROOT)

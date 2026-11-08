@@ -24,12 +24,14 @@ Outputs/, Voices/, and Temp/ are local runtime data, excluded from Git. Saved vo
 Base does not expose a supported plain-text instruction interface. This frontend passes instruct_ids via private helpers into the shared generation path. Instructions may not be followed; producing different audio is not proof of stylistic adherence. Save-as-new-voice re-encodes the generated preview; it does not fine-tune model weights.
 
 ## Theme
-The public distribution includes an original procedural night/star backdrop. Unverified artwork and animation from the private project were deliberately excluded. Optional ignored local-night-sky.js plus assets/local-background.png can retain an existing installation's theme by setting VOICE_STUDIO_LOCAL_THEME=1; these files are not required or distributed. Sora and IBM Plex Sans font licenses are in assets/. The microphone app icon is a locally authored geometric design.
+The public distribution includes our generated night-sky artwork and matching animated stars, authorized by the project owner for publication. Asset URLs resolve from the checkout, so no private local overrides are required. Sora and IBM Plex Sans font licenses are in assets/. The microphone app icon is a locally authored geometric design. See ASSET-PROVENANCE.md.
+
 
 ## Tests
 With the Base model cached, run:
 ```
 python -B -m unittest discover -v
 node test_mode_transition.cjs
+node test_art_drift.cjs
 ```
 Tests use a synthetic speaker embedding and codec tokens, not a person's voice. Most inference tests use a mocked model. Real inference and browser interactions must additionally be checked before changing the live installation. See VERIFICATION.md and UPDATING.md.
