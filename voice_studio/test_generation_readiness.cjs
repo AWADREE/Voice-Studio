@@ -2,7 +2,7 @@ const fs=require('fs'),vm=require('vm'),assert=require('assert');let refresh;
 const generate={disabled:true,textContent:'Generate commentary'},clone={disabled:true,textContent:'Clone reference & generate commentary'};
 const text={value:''},transcript={value:''},include={checked:true},number={value:'42',min:'',max:''};let batch=false,voice=null;
 const reference={querySelector:s=>s==='textarea'?transcript:include};
-const tabs={querySelector:s=>s.includes('role=')?{textContent:batch?'Timestamped clips':'Single commentary'}:text,querySelectorAll:()=>[],parentElement:{querySelectorAll:()=>[number]}};
+const tabs={querySelector:s=>s.includes('role=')?{textContent:batch?'Timestamped clips':'Single commentary'}:text,querySelectorAll:()=>[],parentElement:{querySelectorAll:()=>[number],querySelector:()=>({value:'English'})}};
 const root={addEventListener:(type,f)=>{refresh=f},querySelectorAll:()=>[generate,clone]};
 const document={getElementById:id=>({'production-workspace':root,'generate-commentary':generate,'clone-reference-commentary':clone,'reference-panel':reference,'commentary-mode-tabs':tabs}[id]),querySelector:()=>voice};const window={};
 vm.runInNewContext('('+fs.readFileSync('generation-readiness.js','utf8')+')()',{window,document,MutationObserver:class{observe(){}}});

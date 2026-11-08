@@ -24,6 +24,9 @@
   for(const input of panel?.querySelectorAll('.generation-settings input[type="number"]')||[]){
    const number=Number(input.value);if(input.value===''||!Number.isFinite(number)||(input.min!==''&&number<Number(input.min))||(input.max!==''&&number>Number(input.max)))contentValid=false;
   }
+  const language=panel?.querySelector('[role="listbox"]');
+  const languages=['Auto','English','Chinese','Japanese','Korean','German','French','Russian','Portuguese','Spanish','Italian'];
+  if(!language||!languages.includes(language.value))contentValid=false;
   valid=valid&&contentValid;
   const clone=document.getElementById('clone-reference-commentary');
   const reference=document.getElementById('reference-panel');
