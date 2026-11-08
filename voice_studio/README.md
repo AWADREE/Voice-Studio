@@ -1,6 +1,6 @@
 # Voice Studio
 
-Project: https://github.com/AWADREE/Qwen3-TTS-Voice-Studio
+Project: https://github.com/AWADREE/Voice-Studio
 
 An independent, local-only Gradio frontend for Qwen3-TTS Base: reusable voice prompts, cloning with preview, optional experimental delivery instructions, generation controls, and audio/voice export. Upstream engine and original demo are unmodified.
 
