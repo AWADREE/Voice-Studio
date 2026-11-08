@@ -301,7 +301,7 @@ def generation_options(settings):
 LANGUAGES = ['Auto','English','Chinese','Japanese','Korean','German','French','Russian','Portuguese','Spanish','Italian']
 
 
-def compose_controls(batch=False, clone_button=None):
+def compose_controls(batch=False, clone_button=None, clone_busy=None):
     text = None
     if not batch:
         text = gr.Textbox(label='Commentary text', lines=4, placeholder='Normal summon Dark Necromancer...')
@@ -334,9 +334,9 @@ def compose_controls(batch=False, clone_button=None):
                 text = gr.Textbox(label='Commentary text', lines=4, placeholder='Normal summon Dark Necromancer...')
             with gr.Tab('Timestamped clips') as batch_tab:
                 gr.Markdown('Each timestamp labels a separate clip for editing. No silence is inserted. Shared settings above apply to every clip.', elem_classes=['section-note'])
-                entries = gr.HTML([{'minutes':0,'seconds':0,'text':''}], html_template='<div class="clip-list"></div><button type="button" class="clip-add">Add clip</button>', js_on_load=ui_asset_text('clip-editor.js'), elem_id='clip-editor', css_template=ui_asset_text('clip-editor.css'))
-        single_tab.select(lambda:('single',gr.update(visible=True)), outputs=[mode,text], queue=False, api_name=False)
-        batch_tab.select(lambda:('batch',gr.update(visible=False)), outputs=[mode,text], queue=False, api_name=False)
+                entries = gr.HTML([{'minutes':0,'seconds':0,'text':''}], html_template=ui_asset_text('clip-editor.html'), js_on_load=ui_asset_text('paragraph-timing.js')+'\n'+ui_asset_text('clip-editor.js'), elem_id='clip-editor', css_template=ui_asset_text('clip-editor.css'))
+        single_tab.select(lambda busy:('single',gr.skip() if busy else gr.update(interactive=True,value='Clone reference & generate commentary')), inputs=clone_busy,outputs=[mode,clone_button], queue=False, api_name=False)
+        batch_tab.select(lambda busy:('batch',gr.skip() if busy else gr.update(interactive=False,value='Switch to Single commentary to clone')), inputs=clone_busy,outputs=[mode,clone_button], queue=False, api_name=False)
     button = gr.Button('Generate commentary', variant='primary', elem_classes=['primary-action'], elem_id='generate-commentary' if batch else None)
     return (text, instruction, language, seed, release, identity, button, settings, mode, entries) if batch else (text, instruction, language, seed, release, identity, button, settings)
 
@@ -521,10 +521,10 @@ def generation_finished():
 
 
 def bind_busy_action(button, action, inputs, outputs, label, busy_label, status_index,
-                     api_name=False, begin=None, token=None, adapter=None, finish_mode=None):
+                     api_name=False, begin=None, token=None, adapter=None, finish_mode=None, busy_state=None):
     """One submission lifecycle: queued/running feedback, no duplicate UI requests,
     and normal error results so cleanup executes even when the action raises."""
-    busy = gr.State(False)
+    busy = busy_state if busy_state is not None else gr.State(False)
     def start(request: gr.Request):
         result = [gr.update(interactive=False,value=busy_label),
                   gr.update(value=busy_label,visible=True),True]
@@ -595,7 +595,8 @@ def build_ui():
                             gr.Markdown('Use an existing .pt voice to create commentary.', elem_classes=['section-note'])
                             voice = gr.File(label='Voice file (.pt)', file_types=['.pt'], type='filepath', height=130, elem_classes=['studio-voice-input'])
                             info = gr.Markdown(value='', elem_classes=['studio-output-status'], sanitize_html=True)
-                            text, instruction, language, seed, release, identity, button, settings, commentary_mode, clip_entries = compose_controls(batch=True, clone_button=direct_preview)
+                            clone_busy=gr.State(False)
+                            text, instruction, language, seed, release, identity, button, settings, commentary_mode, clip_entries = compose_controls(batch=True, clone_button=direct_preview,clone_busy=clone_busy)
                     with gr.Column(scale=1, min_width=0, elem_classes=['studio-panel','result-panel'], elem_id='listen-panel'):
                         generation_notice = gr.HTML('',visible=False,elem_id='generation-notice')
                         audio, download, status = output_controls()
@@ -638,7 +639,7 @@ def build_ui():
                 clone_busy=bind_busy_action(direct_preview,None,[clone_ticket,ref_s,transcript_s,xvec_s,text,instruction,language,seed,release,*settings],
                     [audio,download,status,preview_state,preview_transcript,preview_confirm,saved,save_status,preview_actions,correction,preview_file,preview_status,use_correction,voice,info,batch_result,batch_panel],
                     'Clone reference & generate commentary','Cloning & generating...',2,api_name='clone_reference_preview',
-                    begin=begin_clone_selection,token=clone_ticket,adapter=clone_submission,finish_mode=commentary_mode)
+                    begin=begin_clone_selection,token=clone_ticket,adapter=clone_submission,finish_mode=commentary_mode,busy_state=clone_busy)
                 commentary_mode.change(lambda mode,busy:gr.skip() if busy else gr.update(interactive=mode=='single',value=('Clone reference & generate commentary' if mode=='single' else 'Switch to Single commentary to clone')),[commentary_mode,clone_busy],direct_preview,api_name=False,queue=False)
                 bind_busy_action(save_preview,save_preview_corrected,[preview_state,preview_confirm,correction,use_correction],[preview_file,preview_status],'Save as new voice .pt','Saving new voice...',1,api_name='save_preview_voice')
         with gr.Accordion('General settings & model information', open=False, elem_classes=['generation-settings','studio-help','general-settings']):

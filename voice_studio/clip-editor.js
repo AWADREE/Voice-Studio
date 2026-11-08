@@ -25,3 +25,33 @@ function row(data) {
 }
 for(const data of props.value || []) row(data);
 add.addEventListener('click', () => { if(list.children.length>=100)return; const before=list.getBoundingClientRect().height; const added=row({minutes:0,seconds:0,text:''}); snapshot(); if(!matchMedia('(prefers-reduced-motion: reduce)').matches){const after=list.getBoundingClientRect().height;list.animate([{height:before+'px',overflow:'clip'},{height:after+'px',overflow:'clip'}],{duration:200,easing:'cubic-bezier(.2,.7,.2,1)'});} added.querySelector('textarea').focus({preventScroll:true}); });
+
+const source=element.querySelector('.clip-source');
+const split=element.querySelector('.clip-split');
+const confirm=element.querySelector('.clip-confirm');
+const status=element.querySelector('.clip-import-status');
+const undo=element.querySelector('.clip-undo');
+let previous=null;
+function message(text){status.textContent=text;status.hidden=false;}
+function showConfirm(show){confirm.hidden=!show;if(show&&!matchMedia('(prefers-reduced-motion: reduce)').matches)confirm.animate([{opacity:0},{opacity:1}],{duration:180});}
+function applyImport(){
+  try{
+    const entries=paragraphRows(source.value);snapshot();previous=JSON.parse(JSON.stringify(props.value));
+    list.replaceChildren();entries.forEach(row);snapshot();showConfirm(false);undo.hidden=false;
+    message(`Created ${entries.length} editable clips. Source text retained. Times are rounded to the nearest second without cumulative rounding drift.`);
+  }catch(error){message(error.message);}
+}
+split.addEventListener('click',()=>{
+  try{
+    paragraphRows(source.value);snapshot();
+    if(props.value.some(r=>r.text.trim()||r.minutes!==0||r.seconds!==0)){showConfirm(true);message('Existing clips are unchanged until you confirm replacement.');}
+    else applyImport();
+  }catch(error){message(error.message);}
+});
+element.querySelector('.clip-replace').addEventListener('click',applyImport);
+element.querySelector('.clip-cancel').addEventListener('click',()=>{showConfirm(false);message('Import cancelled. Existing clips unchanged.');});
+undo.addEventListener('click',()=>{
+  if(!previous)return;
+  const current=JSON.parse(JSON.stringify(props.value));list.replaceChildren();previous.forEach(row);previous=current;snapshot();
+  message('Restored the previous clips. Click again to return to the imported version.');
+});

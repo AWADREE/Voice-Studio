@@ -21,3 +21,9 @@ class GenerationUiTests(unittest.TestCase):
   self.assertEqual(len(result),15)
   self.assertIn('test failure',result[2]['value'])
   self.assertEqual(result[0],app.gr.skip())
+ def test_single_visibility_is_owned_by_tab_not_server(self):
+  from pathlib import Path
+  source=Path(app.__file__).read_text(encoding='utf-8')
+  callbacks=source.split('single_tab.select')[1].split('button = gr.Button')[0]
+  self.assertNotIn('visible=',callbacks)
+  self.assertNotIn('outputs=[mode,text]',callbacks)

@@ -26,3 +26,10 @@ In **Load voice & generate**, choose **Timestamped clips**. Each row contains mi
 Generate, Clone reference & generate, Save as new voice, hidden legacy Save voice, Unload model and Use this folder have busy labels, disabled submission controls and error-safe restoration. Screen-reader busy attributes and live status announcements share the same filled spinner styling (reduced-motion respected). Folder errors stay inside the picker dialog. Navigation, reset defaults, playback and download controls remain immediate actions rather than showing artificial loading.
 
 Verification: 72 Python tests; delayed local synthetic browser checks for generation, clone failure, save failure, successful unload and invalid folder confirmation. Real model inference was not repeated for this UI lifecycle change.
+
+## Paragraph import
+The timestamped tab accepts an uncapped source script. Split on blank lines (including whitespace-only separators); trim paragraphs, retain internal single line breaks, start at 00:05, then add 0.08 seconds per preceding Unicode character, including internal spaces and punctuation. Integer centiseconds prevent accumulated rounding drift; only displayed timestamps round to whole seconds. These are editable estimates, not duration guarantees.
+
+Existing nonempty or retimed rows require explicit replacement confirmation. Cancel preserves them; source text is never cleared. Undo toggles between the previous and imported rows. Current generation limits remain 100 clips and 2,000 characters per clip: oversized imports explain how to split the script and leave all existing content intact.
+
+Single commentary visibility is now owned by the tab itself rather than a delayed server callback. Both directions retain the shared 220ms presence transition and reduced-motion behavior. Browser verified empty source, whitespace separators, trimming, editable rows, confirmation/cancel/undo, retained source across tabs, and imported 3-clip synthesis using synthetic audio. Deterministic parser tests cover Unicode, timing drift and limits; 73 Python regression tests pass.
