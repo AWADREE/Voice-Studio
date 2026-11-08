@@ -127,9 +127,17 @@ def release_model():
 
 
 def unload():
-    with LOCK:
+    # Never wait behind a whole batch while the UI claims to be unloading.
+    # Unloading is not cancellation: leave any in-flight model operation intact.
+    if not LOCK.acquire(blocking=False):
+        return 'Model is in use. Wait for generation or voice saving to finish, then unload. Nothing was interrupted.'
+    try:
+        if _model is None:
+            return 'No model is loaded in this Voice Studio instance.'
         release_model()
-    return 'Experimental model unloaded. The original GUIs were not changed.'
+        return 'Model unloaded. Other Voice Studio instances were not changed.'
+    finally:
+        LOCK.release()
 
 
 def generate(voice_path, text, instruction, language, seed, release_after, identity_only, *settings):
@@ -348,7 +356,7 @@ def output_controls():
     download = gr.File(label='Download WAV', interactive=False, height=85, elem_classes=['studio-wav-output'])
     status = gr.Markdown(value='', elem_classes=['studio-output-status'], sanitize_html=True)
     unload_button = gr.Button('Unload experimental model')
-    bind_busy_action(unload_button,unload,[],[status],'Unload experimental model','Unloading model...',0)
+    bind_busy_action(unload_button,unload,[],[status],'Unload experimental model','Unloading model...',0,queue_action=False)
     return audio, download, status
 
 
@@ -548,7 +556,7 @@ def generation_finished():
 
 
 def bind_busy_action(button, action, inputs, outputs, label, busy_label, status_index,
-                     api_name=False, begin=None, token=None, adapter=None, finish_mode=None, busy_state=None):
+                     api_name=False, begin=None, token=None, adapter=None, finish_mode=None, busy_state=None, queue_action=True):
     """One submission lifecycle: queued/running feedback, no duplicate UI requests,
     and normal error results so cleanup executes even when the action raises."""
     busy = busy_state if busy_state is not None else gr.State(False)
@@ -570,7 +578,7 @@ def bind_busy_action(button, action, inputs, outputs, label, busy_label, status_
         return gr.update(interactive=enabled,value=label if enabled else 'Switch to Single commentary to clone'),False
     start_outputs=[button,outputs[status_index],busy]+([token] if begin else [])
     button.click(start,outputs=start_outputs,queue=False,api_name=False,trigger_mode='once').then(
-        execute,inputs,outputs,api_name=api_name,concurrency_limit=1,trigger_mode='once',show_progress='hidden').then(
+        execute,inputs,outputs,api_name=api_name,concurrency_limit=1,trigger_mode='once',show_progress='hidden',queue=queue_action).then(
         finish,inputs=[finish_mode] if finish_mode is not None else [],outputs=[button,busy],queue=False,api_name=False)
     return busy
 

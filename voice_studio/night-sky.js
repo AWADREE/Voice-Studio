@@ -40,7 +40,7 @@
     const presenceState=new WeakMap();
   function animatePresence(){
     document.querySelectorAll('.studio-output-status,#correction-editor,.studio-wav-output,.studio-presence').forEach(el=>{
-      if(el.parentElement.closest('.studio-output-status') || referenceLayoutBusy(el))return;
+      if(el.matches('.studio-output-status') || el.parentElement.closest('.studio-output-status') || referenceLayoutBusy(el))return;
       const prior=presenceState.get(el);
       if(prior?.animating)return;
       const visible=getComputedStyle(el).display!=='none'&&el.getBoundingClientRect().height>0;
@@ -133,6 +133,46 @@
       entry.animation.onfinish=()=>{entry.animation=null;};
     });
   }
+  // Keep the outgoing status painted until its layout space has collapsed.
+  // Gradio clears its Markdown before toggling visibility, so height-only animation
+  // cannot preserve the old content without this inert visual snapshot.
+  const statusPresence=new WeakMap();
+  function polishStatusPresence(){
+    [...document.querySelectorAll('.studio-output-status')].reverse().forEach(el=>{
+      if(el.closest('[data-status-ghost]'))return;
+      if(el.parentElement.closest('.studio-output-status')){el.classList.toggle('has-status',Boolean(el.textContent.trim()));return;}
+      el.setAttribute('role','status');el.setAttribute('aria-live','polite');el.setAttribute('aria-atomic','true');
+      const content=el.querySelector('.md:not([data-status-ghost])');
+      const text=content?.textContent.trim()||'';
+      const prior=statusPresence.get(el);
+      if(prior?.text===text)return;
+      const from=(!text?prior?.height:el.getBoundingClientRect().height)||prior?.height||0;
+      prior?.animation?.cancel();prior?.ghost?.remove();
+      el.style.removeProperty('display');el.style.removeProperty('overflow');el.style.removeProperty('padding');
+      el.classList.toggle('has-status',Boolean(text));
+      const state={text,height:el.getBoundingClientRect().height,content:content?.cloneNode(true)};
+      statusPresence.set(el,state);
+      if(!prior||matchMedia('(prefers-reduced-motion: reduce)').matches)return;
+      const gap=parseFloat(getComputedStyle(el.parentElement).rowGap)||0;
+      if(!text&&prior.content){
+        state.ghost=prior.content;state.ghost.dataset.statusGhost='true';state.ghost.setAttribute('aria-hidden','true');state.ghost.inert=true;
+        el.append(state.ghost);el.style.setProperty('display','block','important');
+        el.classList.add('has-status');el.style.setProperty('padding','0','important');state.ghost.style.padding='10px 12px';
+      }
+      el.style.overflow='clip';
+      const target=text?state.height:0;
+      state.animation=el.animate([
+        {height:from+'px',minHeight:'0px',opacity:prior.text?1:0,marginBottom:prior.text?'0px':-gap+'px',boxSizing:'border-box'},
+        {height:target+'px',minHeight:'0px',opacity:text?1:0,marginBottom:text?'0px':-gap+'px',paddingTop:text?'10px':'0px',paddingBottom:text?'10px':'0px',boxSizing:'border-box'}
+      ],{duration:220,easing:'cubic-bezier(.2,.8,.2,1)'});
+      const samples=[];const sample=()=>{samples.push(Math.round(el.getBoundingClientRect().height*100)/100);if(state.animation?.playState==='running')requestAnimationFrame(sample);else el.dataset.statusMotion=JSON.stringify(samples);};requestAnimationFrame(sample);
+      state.animation.onfinish=()=>{
+        if(statusPresence.get(el)!==state)return;
+        state.ghost?.remove();el.style.removeProperty('display');el.style.removeProperty('overflow');el.style.removeProperty('padding');
+        el.classList.toggle('has-status',Boolean(text));state.animation=null;
+      };
+    });
+  }
   const polishFiles=()=>{
     requestAnimationFrame(animatePickerGeometry);
     requestAnimationFrame(animatePresence);
@@ -155,7 +195,7 @@
       const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('viewBox','0 0 24 24');svg.setAttribute('aria-hidden','true');svg.classList.add('studio-dropzone-glyph');svg.innerHTML='<path d="'+filledIcons.upload+'"/>';w.append(svg);
     });
     document.querySelectorAll('.studio-voice-input td a').forEach(a=>{a.removeAttribute('href');a.removeAttribute('download');a.setAttribute('tabindex','-1');a.setAttribute('role','text');a.classList.add('studio-static-size');if(a.textContent.includes('\u21e3'))a.textContent=a.textContent.replace('\u21e3','').trim();});
-    document.querySelectorAll('.studio-output-status').forEach(e=>{if(!e.parentElement.closest('.studio-output-status')){e.setAttribute('role','status');e.setAttribute('aria-live','polite');e.setAttribute('aria-atomic','true');}e.classList.toggle('has-status',Boolean((e.querySelector('[data-testid=markdown]') || e).querySelector('.md')?.textContent.trim()));});
+    polishStatusPresence();
     document.querySelectorAll('.studio-wav-output td a').forEach(a=>{
       if(a.dataset.studioDownload)return;a.dataset.studioDownload='true';
       const size=document.createElement('span');size.className='studio-file-size';size.textContent=a.textContent.replace('\u21e3','').trim();
