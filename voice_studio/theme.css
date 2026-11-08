@@ -314,3 +314,12 @@ footer[aria-label="Gradio footer navigation"]>button.show-api:hover,footer[aria-
 
 /* Keep inner clone controls stable while the outer mode column animates. */
 #voice-mode-workspace.mode-transitioning #reference-panel>*{min-width:var(--reference-content-width,0px)!important}
+/* Timestamped clip composer uses the same filled surfaces as the single workflow. */
+#commentary-mode-tabs { background: transparent; }
+#commentary-mode-tabs .tab-nav { border: 0; border-radius:12px; padding:6px; background:#141c27; gap:6px; }
+#commentary-mode-tabs .tab-nav button { border:0; border-radius:8px; background:#202c3a; color:#dce6ee; padding:10px 14px; }
+#commentary-mode-tabs .tab-nav button.selected { background:#34485c; }
+.clip-editor,.batch-clip { background:#131c28 !important; border:0 !important; border-radius:14px !important; padding:16px !important; gap:12px !important; }
+#batch-output { gap:16px; }
+@media(prefers-reduced-motion:no-preference){ .clip-editor,.batch-clip { animation:batch-enter .2s ease-out; } @keyframes batch-enter {from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}} }
+.batch-audio audio { width:100%; display:block; color-scheme:dark; accent-color:#d9b96e; border-radius:10px; }
