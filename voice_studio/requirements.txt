@@ -1,0 +1,5 @@
+# Install upstream first: python -m pip install -e ..
+# UI compatibility baseline. Upgrade deliberately and run regression checks.
+gradio==6.17.3
+numpy==2.5.4
+soundfile==0.14.0

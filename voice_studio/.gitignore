@@ -1,0 +1,17 @@
+Outputs/
+Voices/
+Temp/
+__pycache__/
+*.pyc
+*.log
+*.bak
+*.pt
+*.wav
+*.mp3
+*.mp4
+*.safetensors
+storage-locations.json
+local-*.ps1
+assets/local-background.png
+local-*.js
+local-*.cjs
