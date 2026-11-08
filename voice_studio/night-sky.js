@@ -61,28 +61,46 @@
     });
   }
   document.addEventListener('change',()=>requestAnimationFrame(animatePresence),true);
+  const drawerAnimations=new WeakMap();
   function animateDrawer(dialog,closing,done){
     const panel=dialog.querySelector('.api-docs-wrap');
+    const backdrop=dialog.querySelector('.backdrop');
+    const old=drawerAnimations.get(dialog);
+    const panelStyle=panel&&getComputedStyle(panel);
+    const fromTransform=panelStyle?.transform||'translateX(0)';
+    const fromOpacity=panelStyle?.opacity||'1';
+    const backdropOpacity=backdrop?getComputedStyle(backdrop).opacity:'1';
+    old?.forEach(a=>a.cancel());
     if(!panel||matchMedia('(prefers-reduced-motion: reduce)').matches){done?.();return;}
-    const animation=panel.animate(closing?[{transform:'translateX(0)',opacity:1},{transform:'translateX(100%)',opacity:0}]:[{transform:'translateX(100%)',opacity:0},{transform:'translateX(0)',opacity:1}],{duration:180,easing:'cubic-bezier(.2,.8,.2,1)',fill:closing?'forwards':'none'});
-    const samples=[];const sample=()=>{samples.push(Math.round(panel.getBoundingClientRect().x));if(animation.playState==='running')requestAnimationFrame(sample);else document.documentElement.dataset.drawerMotion=JSON.stringify({closing,samples});};requestAnimationFrame(sample);
-    animation.onfinish=()=>done?.();
+    const timing={duration:180,easing:'cubic-bezier(.2,.8,.2,1)',fill:closing?'forwards':'none'};
+    const animation=panel.animate(closing?[{transform:fromTransform,opacity:fromOpacity},{transform:'translateX(100%)',opacity:0}]:[{transform:'translateX(100%)',opacity:0},{transform:'translateX(0)',opacity:1}],timing);
+    const veil=backdrop?.animate(closing?[{opacity:backdropOpacity},{opacity:0}]:[{opacity:0},{opacity:1}],timing);
+    drawerAnimations.set(dialog,[animation,...(veil?[veil]:[])]);
+    const samples=[];const sample=()=>{samples.push({x:Math.round(panel.getBoundingClientRect().x),overlay:backdrop?Number(getComputedStyle(backdrop).opacity):null});if(animation.playState==='running')requestAnimationFrame(sample);else document.documentElement.dataset.drawerMotion=JSON.stringify({closing,samples});};requestAnimationFrame(sample);
+    animation.onfinish=()=>{drawerAnimations.delete(dialog);done?.();};
   }
   function polishDrawers(){
     document.querySelectorAll('.api-docs[role=dialog]').forEach(d=>{
-      const closeNow=d.querySelector('.banner-wrap button');if(closeNow)closeNow.setAttribute('aria-label','Close panel');
+      const closeNow=d.querySelector('.banner-wrap > button');if(closeNow)closeNow.setAttribute('aria-label','Close panel');
       if(d.dataset.studioDrawer)return;d.dataset.studioDrawer='true';
+      const opener=document.activeElement;
       animateDrawer(d,false);
       d.addEventListener('click',e=>{
         if(d.dataset.allowClose)return;
-        if(!e.target.closest('.banner-wrap button,.backdrop'))return;
+        if(!e.target.closest('.banner-wrap > button,.backdrop'))return;
         e.preventDefault();e.stopImmediatePropagation();
         if(d.dataset.closing)return;d.dataset.closing='true';
-        animateDrawer(d,true,()=>{d.dataset.allowClose='true';d.querySelector('.banner-wrap button')?.click();});
+        animateDrawer(d,true,()=>{d.dataset.allowClose='true';d.querySelector('.banner-wrap > button')?.click();requestAnimationFrame(()=>{if(opener?.isConnected)opener.focus();});});
       },true);
-      d.addEventListener('keydown',e=>{if(e.key==='Escape'&&!d.dataset.allowClose){e.preventDefault();e.stopImmediatePropagation();d.querySelector('.banner-wrap button')?.click();}},true);
+      d.addEventListener('keydown',e=>{if(e.key==='Escape'&&!d.dataset.allowClose){e.preventDefault();e.stopImmediatePropagation();d.querySelector('.banner-wrap > button')?.click();}},true);
     });
   }
+  document.addEventListener('keydown',e=>{
+    if(e.key!=='Escape')return;
+    const drawer=document.querySelector('.api-docs[role=dialog]');
+    if(!drawer||drawer.dataset.allowClose)return;
+    e.preventDefault();e.stopImmediatePropagation();drawer.querySelector('.banner-wrap > button')?.click();
+  },true);
   let storageReturnFocus=null;
   function polishStorageDialog(){
     const d=document.querySelector('#storage-picker-dialog');if(!d)return;
