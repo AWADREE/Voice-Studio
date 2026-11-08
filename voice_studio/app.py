@@ -622,7 +622,8 @@ def build_ui():
                             ref_s, transcript_s, xvec_s = reference_controls()
                             save = gr.Button('Save voice file', visible=False)
                             gr.Markdown('Save a voice and preview your commentary in one step.', elem_classes=['section-note'])
-                            direct_preview = gr.Button('Clone reference & generate commentary', elem_classes=['primary-action'])
+                            direct_preview = gr.Button('Clone reference & generate commentary', elem_classes=['primary-action'], elem_id='clone-reference-commentary', interactive=False)
+                            ref_s.change(fn=None, inputs=ref_s, js="(audio) => { window.voiceStudioReferenceReady = !!audio; document.getElementById('production-workspace')?.dispatchEvent(new Event('input',{bubbles:true})); }", api_name=False)
                             saved = gr.File(label='Saved voice file (.pt)', interactive=False, height=85, visible=False)
                             save_status = gr.Markdown(value='', visible=False, elem_classes=['studio-output-status'], sanitize_html=True)
                         with gr.Column(scale=1, min_width=340, elem_classes=['studio-panel']):

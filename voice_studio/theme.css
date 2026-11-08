@@ -371,3 +371,18 @@ footer[aria-label="Gradio footer navigation"]>button[data-inline-utility-trigger
 .studio-utility-host .api-docs-wrap .banner-wrap{padding:16px 0!important;border:0!important}
 .studio-utility-host .api-docs-wrap .banner-wrap>button{min-width:36px;min-height:36px}
 @media(prefers-reduced-motion:reduce){.studio-utility-host .api-docs-wrap button{transition:none!important}}
+/* Native utility content follows the same filled Night Exchange surfaces. */
+.studio-utility-host{color:#c5d6e5;font-family:Plex,sans-serif}
+.studio-utility-host .api-docs-wrap{color:#c5d6e5!important;font-family:Plex,sans-serif!important}
+.studio-utility-host :is(pre,code,select,input[type=text],input[type=search],[role=listbox]){background:#102335!important;color:#d8e6ef!important;border:0!important;border-radius:9px!important}
+.studio-utility-host pre{padding:16px!important;margin:12px 0!important}
+.studio-utility-host :is(h1,h2,h3,h4){color:#e2edf5!important}
+.studio-utility-host :is(hr,.divider){opacity:.15}
+.studio-utility-host .api-docs-wrap button:is(.selected,.active,[aria-selected=true],[aria-pressed=true]){background:#29495e!important;color:#edf5fa!important}
+.studio-utility-host .api-docs-wrap :is(ul,ol){padding-left:0!important}
+.studio-utility-host .api-docs-wrap li{border:0!important;border-radius:9px!important;background:#102335;padding:8px 12px;margin:4px;list-style:none}
+.studio-utility-host .api-docs-wrap li:hover{background:#1b3346}
+.studio-utility-host input[type=checkbox]{accent-color:#87adbf;width:17px;height:17px}
+.studio-utility-host :is(a,button):hover{text-decoration:none!important}
+.studio-utility-host .wrap:has(>.wrap-inner [role=listbox]),.studio-utility-host .wrap:has(>.secondary-wrap [role=listbox]),.studio-utility-host .wrap-inner:has([role=listbox]){background:#102335!important;border:0!important;border-radius:9px!important;box-shadow:none!important}
+.studio-utility-host .secondary-wrap{padding:8px 12px!important;min-height:40px;box-sizing:border-box}
