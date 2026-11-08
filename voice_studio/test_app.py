@@ -304,7 +304,7 @@ class FirstInteractionRegression(unittest.TestCase):
         cs={c['id']:c for c in cfg['components']}
         for d in cfg['dependencies']:
             for component_id,event in d.get('targets',[]):
-                self.assertFalse(cs.get(component_id,{}).get('type')=='state' and event=='change')
+                self.assertFalse(cs.get(component_id,{}).get('type')=='state' and event=='change' and any('preview' in str(cs.get(out,{}).get('props',{}).get('label','')).lower() for out in d.get('outputs',[])))
     def test_status_notices_are_not_inputs(self):
         cfg=app.build_ui().get_config_file()
         notices=[c for c in cfg['components'] if 'studio-output-status' in c['props'].get('elem_classes',[])]

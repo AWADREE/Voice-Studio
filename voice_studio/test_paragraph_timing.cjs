@@ -1,0 +1,14 @@
+const fs=require('fs'),vm=require('vm'),assert=require('assert');
+const ctx={};vm.runInNewContext(fs.readFileSync('paragraph-timing.js','utf8'),ctx);const split=s=>JSON.parse(JSON.stringify(ctx.paragraphRows(s)));
+assert.throws(()=>split('  \n\n  '),/at least/);
+assert.deepEqual(split('  first  \r\n \r\n\r\nsecond  '),[{minutes:0,seconds:5,text:'first'},{minutes:0,seconds:5,text:'second'}]);
+assert.equal(split('A'.repeat(100)+'\n\nnext')[1].seconds,13);
+assert.equal(split('a b!'.repeat(25)+'\n\nnext')[1].seconds,13);
+assert.equal(split('a\nb')[0].text,'a\nb');
+assert.equal(split('😀'.repeat(100)+'\n\nnext')[1].seconds,13);
+const many=split(Array(100).fill('1234567').join('\n\n'));
+for(let i=0;i<100;i++)assert.equal(many[i].minutes*60+many[i].seconds,Math.round((500+i*56)/100));
+assert.throws(()=>split('a'.repeat(2001)),/2,000/);
+assert.throws(()=>split(Array(101).fill('a').join('\n\n')),/100 clips/);
+assert.deepEqual(split('x'.repeat(2000)+'\n\ny')[1],{minutes:2,seconds:45,text:'y'});
+console.log('PASS blank lines, trimming, spaces/punctuation, Unicode, 100 cumulative times without drift, validation and minute rollover');

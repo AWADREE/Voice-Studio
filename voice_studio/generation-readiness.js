@@ -1,0 +1,42 @@
+() => {
+ if(window.voiceStudioReadiness)return;window.voiceStudioReadiness=true;
+ const root=document.getElementById('production-workspace');
+ function validText(value){const size=Array.from(value.trim()).length;return size>0&&size<=2000;}
+ function refresh(){
+  const button=document.getElementById('generate-commentary');if(!button)return;
+  const voice=document.querySelector('.studio-voice-input .filename[aria-label]');
+  const tabs=document.getElementById('commentary-mode-tabs');
+  const batch=tabs?.querySelector('[role="tab"][aria-selected="true"]')?.textContent.includes('Timestamped');
+  const busy=/Generating commentary/.test(button.textContent)||[...root.querySelectorAll('button')].some(b=>/Cloning & generating/.test(b.textContent));
+  let contentValid=true;
+  let valid=!!voice&&/\.pt$/i.test(voice.getAttribute('aria-label'))&&!busy;
+  if(batch){
+   const rows=[...tabs.querySelectorAll('.clip-list .clip-row:not([data-removing])')];
+   contentValid=rows.length>0&&rows.length<=100&&rows.every(row=>{
+    const minutes=row.querySelector('[data-field="minutes"]').value,seconds=row.querySelector('[data-field="seconds"]').value;
+    return /^\d+$/.test(minutes)&&Number(minutes)<=9999&&/^\d+$/.test(seconds)&&Number(seconds)<=59&&validText(row.querySelector('textarea').value);
+   });
+  }else{
+   const field=tabs?.querySelector('textarea:not(.clip-source):not(.clip-row textarea)');
+   contentValid=!!field&&validText(field.value);
+  }
+  const panel=tabs?.parentElement;
+  for(const input of panel?.querySelectorAll('.generation-settings input[type="number"]')||[]){
+   const number=Number(input.value);if(input.value===''||!Number.isFinite(number)||(input.min!==''&&number<Number(input.min))||(input.max!==''&&number>Number(input.max)))contentValid=false;
+  }
+  const language=panel?.querySelector('[role="listbox"]');
+  const languages=['Auto','English','Chinese','Japanese','Korean','German','French','Russian','Portuguese','Spanish','Italian'];
+  if(!language||!languages.includes(language.value))contentValid=false;
+  valid=valid&&contentValid;
+  const clone=document.getElementById('clone-reference-commentary');
+  const reference=document.getElementById('reference-panel');
+  const include=reference?.querySelector('input[type="checkbox"]')?.checked;
+  const transcript=reference?.querySelector('textarea');
+  const cloneValid=!!window.voiceStudioReferenceReady&&!batch&&contentValid&&!busy&&(!include||!!transcript?.value.trim());
+  if(clone&&clone.disabled===cloneValid)clone.disabled=!cloneValid;
+  if(button.disabled===valid)button.disabled=!valid;
+ }
+ root.addEventListener('input',refresh);root.addEventListener('change',refresh);
+ new MutationObserver(refresh).observe(root,{subtree:true,childList:true,characterData:true,attributes:true,attributeFilter:['disabled','aria-selected','aria-label']});
+ refresh();
+}

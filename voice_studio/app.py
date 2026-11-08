@@ -127,9 +127,17 @@ def release_model():
 
 
 def unload():
-    with LOCK:
+    # Never wait behind a whole batch while the UI claims to be unloading.
+    # Unloading is not cancellation: leave any in-flight model operation intact.
+    if not LOCK.acquire(blocking=False):
+        return 'Model is in use. Wait for generation or voice saving to finish, then unload. Nothing was interrupted.'
+    try:
+        if _model is None:
+            return 'No model is loaded in this Voice Studio instance.'
         release_model()
-    return 'Experimental model unloaded. The original GUIs were not changed.'
+        return 'Model unloaded. Other Voice Studio instances were not changed.'
+    finally:
+        LOCK.release()
 
 
 def generate(voice_path, text, instruction, language, seed, release_after, identity_only, *settings):
@@ -301,8 +309,11 @@ def generation_options(settings):
 LANGUAGES = ['Auto','English','Chinese','Japanese','Korean','German','French','Russian','Portuguese','Spanish','Italian']
 
 
-def compose_controls():
-    text = gr.Textbox(label='Commentary text', lines=4, placeholder='Normal summon Dark Necromancer...')
+def compose_controls(batch=False, clone_button=None, clone_busy=None):
+    text = None
+    if not batch:
+        text = gr.Textbox(label='Commentary text', lines=4, placeholder='Normal summon Dark Necromancer...')
+    mode = entries = None
     instruction = gr.Textbox(label='Delivery instruction (optional)', lines=2, placeholder='Speak calmly and naturally, with quiet confidence.')
     language = gr.Dropdown(LANGUAGES, value='English', label='Language')
     with gr.Accordion('Generation settings', open=False, elem_classes=['generation-settings']):
@@ -324,8 +335,18 @@ def compose_controls():
         settings = [max_tokens,temperature,top_k,top_p,repetition,sampling,sub_temp,sub_k,sub_p,sub_sampling]
         reset = gr.Button('Reset sampling defaults')
         reset.click(lambda: SETTING_DEFAULTS, outputs=settings, api_name=False)
-    button = gr.Button('Generate commentary', variant='primary', elem_classes=['primary-action'])
-    return text, instruction, language, seed, release, identity, button, settings
+    if batch:
+        mode = gr.State('single')
+        with gr.Tabs(elem_id='commentary-mode-tabs'):
+            with gr.Tab('Single commentary') as single_tab:
+                text = gr.Textbox(label='Commentary text', lines=4, placeholder='Normal summon Dark Necromancer...')
+            with gr.Tab('Timestamped clips') as batch_tab:
+                gr.Markdown('Each timestamp labels a separate clip for editing. No silence is inserted. Shared settings above apply to every clip.', elem_classes=['section-note'])
+                entries = gr.HTML([{'minutes':0,'seconds':0,'text':''}], html_template=ui_asset_text('clip-editor.html'), js_on_load=ui_asset_text('paragraph-timing.js')+'\n'+ui_asset_text('clip-editor.js'), elem_id='clip-editor', css_template=ui_asset_text('clip-editor.css'))
+        single_tab.select(lambda busy:('single',gr.skip() if busy else gr.update(interactive=True,value='Clone reference & generate commentary')), inputs=clone_busy,outputs=[mode,clone_button], queue=False, api_name=False)
+        batch_tab.select(lambda busy:('batch',gr.skip() if busy else gr.update(interactive=False,value='Switch to Single commentary to clone')), inputs=clone_busy,outputs=[mode,clone_button], queue=False, api_name=False)
+    button = gr.Button('Generate commentary', variant='primary', elem_classes=['primary-action'], elem_id='generate-commentary' if batch else None,interactive=not batch,preserved_by_key=['value','interactive'])
+    return (text, instruction, language, seed, release, identity, button, settings, mode, entries) if batch else (text, instruction, language, seed, release, identity, button, settings)
 
 
 def output_controls():
@@ -335,7 +356,9 @@ def output_controls():
     download = gr.File(label='Download WAV', interactive=False, height=85, elem_classes=['studio-wav-output'])
     status = gr.Markdown(value='', elem_classes=['studio-output-status'], sanitize_html=True)
     unload_button = gr.Button('Unload experimental model')
-    unload_button.click(unload, outputs=status, concurrency_limit=1)
+    bind_busy_action(unload_button,unload,[],[status],'Unload experimental model','Unloading model...',0,queue_action=False)
+    legacy_unload = gr.Button(visible=False)
+    legacy_unload.click(unload,outputs=status,concurrency_limit=1)
     return audio, download, status
 
 
@@ -473,6 +496,105 @@ def commit_storage_picker(kind,path,request: gr.Request):
     finally:LOCK.release()
 
 
+
+def generate_commentary_mode(mode, rows, voice, text, instruction, language, seed, release, identity, *settings, progress=gr.Progress()):
+    if mode != 'batch':
+        result = generate_preview_atomic(voice,text,instruction,language,seed,release,identity,*settings)
+        return (gr.update(value=result[0],visible=True),gr.update(value=result[1],visible=True),*result[2:], None, gr.update(visible=False), '', gr.update(value=None,visible=False))
+    from batch_generation import run_batch
+    generation_options(settings)
+    read_voice(voice)
+    result = run_batch(rows, generate_clip=lambda paragraph,index: generate(voice,paragraph,instruction,language,seed,False,identity,*settings)[0], output_root=OUTPUTS, lock=LOCK, release_after=release, release_model=release_model, on_progress=lambda index,total,label:progress((index,total),desc=f'Generating clip {index+1}/{total} ({label})'))
+    for clip in result['clips']:
+        authorize_generated_file(Path(clip['audio']))
+    if result['archive']: authorize_generated_file(Path(result['archive']))
+    # Existing single preview remains on disk, but cannot be mistaken for this batch.
+    return (gr.update(value=None,visible=False),gr.update(value=None,visible=False),'',None,'',False,gr.update(visible=False),gr.update(value=''),gr.update(value=None,visible=False),gr.update(value='',visible=False),False,result,gr.update(visible=True),result['status'],gr.update(value=result['archive'],visible=bool(result['archive'])))
+
+def generate_commentary_ui(*args, progress=gr.Progress()):
+    # Return a normal event result even on failure so the completion event always
+    # restores controls. Keep previous media and show an explicit error notice.
+    try:
+        return generate_commentary_mode(*args, progress=progress)
+    except Exception as error:
+        updates = [gr.skip() for _ in range(15)]
+        updates[2] = gr.update(value='Generation failed: ' + str(error), visible=True)
+        return tuple(updates)
+
+
+def commentary_ready(mode, rows, voice, text, busy=False, cloning=False, *settings):
+    if busy or cloning or not voice or not str(voice).lower().endswith('.pt'):
+        return False
+    try:
+        generation_options(settings)
+        if mode=='batch':
+            from batch_generation import validate_entries
+            validate_entries(rows)
+        elif not isinstance(text,str) or not 1<=len(text.strip())<=2000:
+            return False
+        return True
+    except (TypeError,ValueError,OverflowError):
+        return False
+
+
+def update_generate_readiness(*args):
+    return gr.update(interactive=commentary_ready(*args))
+
+
+def generation_started_with_state():
+    return gr.update(interactive=False,value='Generating commentary...'),gr.update(value='',visible=False),True
+
+
+def generation_completed(mode,rows,voice,text,cloning,*settings):
+    return gr.update(interactive=commentary_ready(mode,rows,voice,text,False,cloning,*settings),value='Generate commentary'),gr.update(value='',visible=False),False
+
+
+def generation_started():
+    return gr.update(interactive=False,value='Generating commentary...'), gr.update(value='<div class="studio-generation-running" role="status" aria-live="polite"><span class="studio-generation-spinner" aria-hidden="true"></span><span>Generating commentary. Please wait...</span></div>',visible=True)
+
+
+def generation_finished():
+    return gr.update(interactive=True,value='Generate commentary'), gr.update(value='',visible=False)
+
+
+def bind_busy_action(button, action, inputs, outputs, label, busy_label, status_index,
+                     api_name=False, begin=None, token=None, adapter=None, finish_mode=None, busy_state=None, queue_action=True):
+    """One submission lifecycle: queued/running feedback, no duplicate UI requests,
+    and normal error results so cleanup executes even when the action raises."""
+    busy = busy_state if busy_state is not None else gr.State(False)
+    def start(request: gr.Request):
+        result = [gr.update(interactive=False,value=busy_label),
+                  gr.update(value=busy_label,visible=True),True]
+        if begin: result.append(begin(request))
+        return tuple(result)
+    def execute(request: gr.Request, *args):
+        try:
+            result = adapter(args,request) if adapter else action(*args)
+            return result
+        except Exception as error:
+            result = [gr.skip() for _ in outputs]
+            result[status_index] = gr.update(value='Operation failed: '+str(error),visible=True)
+            return tuple(result) if len(outputs)>1 else result[0]
+    def finish(mode='single'):
+        enabled = finish_mode is None or mode=='single'
+        return gr.update(interactive=enabled,value=label if enabled else 'Switch to Single commentary to clone'),False
+    start_outputs=[button,outputs[status_index],busy]+([token] if begin else [])
+    button.click(start,outputs=start_outputs,queue=False,api_name=False,trigger_mode='once').then(
+        execute,inputs,outputs,api_name=api_name,concurrency_limit=1,trigger_mode='once',show_progress='hidden',queue=queue_action).then(
+        finish,inputs=[finish_mode] if finish_mode is not None else [],outputs=[button,busy],queue=False,api_name=False)
+    return busy
+
+
+def commit_storage_submission(args, request):
+    result=commit_storage_picker(*args,request)
+    return (*result,result[2])
+
+
+def clone_submission(args, request):
+    result=clone_reference_selected(*args[:9],request,*args[9:])
+    return (gr.update(value=result[0],visible=True),gr.update(value=result[1],visible=True),*result[2:],None,gr.update(visible=False))
+
+
 def build_ui():
     with gr.Blocks(title='Voice Studio | Night Exchange') as app:
         with gr.Row(elem_id='studio-heading-row'):
@@ -502,17 +624,36 @@ def build_ui():
                             ref_s, transcript_s, xvec_s = reference_controls()
                             save = gr.Button('Save voice file', visible=False)
                             gr.Markdown('Save a voice and preview your commentary in one step.', elem_classes=['section-note'])
-                            direct_preview = gr.Button('Clone reference & generate commentary', elem_classes=['primary-action'])
+                            direct_preview = gr.Button('Clone reference & generate commentary', elem_classes=['primary-action'], elem_id='clone-reference-commentary', interactive=False)
+                            ref_s.change(fn=None, inputs=ref_s, js="(audio) => { window.voiceStudioReferenceReady = !!audio; document.getElementById('production-workspace')?.dispatchEvent(new Event('input',{bubbles:true})); }", api_name=False)
                             saved = gr.File(label='Saved voice file (.pt)', interactive=False, height=85, visible=False)
                             save_status = gr.Markdown(value='', visible=False, elem_classes=['studio-output-status'], sanitize_html=True)
                         with gr.Column(scale=1, min_width=340, elem_classes=['studio-panel']):
                             gr.Markdown('## Load voice & generate')
                             gr.Markdown('Use an existing .pt voice to create commentary.', elem_classes=['section-note'])
                             voice = gr.File(label='Voice file (.pt)', file_types=['.pt'], type='filepath', height=130, elem_classes=['studio-voice-input'])
-                            info = gr.Markdown(value='', elem_classes=['studio-output-status'], sanitize_html=True)
-                            text, instruction, language, seed, release, identity, button, settings = compose_controls()
+                            info = gr.Markdown(value='', elem_classes=['studio-output-status'], elem_id='selected-voice-status', sanitize_html=True)
+                            clone_busy=gr.State(False)
+                            text, instruction, language, seed, release, identity, button, settings, commentary_mode, clip_entries = compose_controls(batch=True, clone_button=direct_preview,clone_busy=clone_busy)
                     with gr.Column(scale=1, min_width=0, elem_classes=['studio-panel','result-panel'], elem_id='listen-panel'):
+                        generation_busy=gr.State(False)
+                        generation_notice = gr.HTML('',visible=False,elem_id='generation-notice')
                         audio, download, status = output_controls()
+                        batch_result = gr.State(None)
+                        with gr.Column(visible=True, elem_id='batch-output') as batch_panel:
+                            batch_status = gr.Markdown('', elem_classes=['studio-output-status'])
+                            with gr.Row():
+                                play_all = gr.Button('Play all', elem_id='batch-play-all')
+                                stop_all = gr.Button('Stop playback', elem_id='batch-stop-all')
+                                batch_zip = gr.DownloadButton('Download all (ZIP)', visible=False)
+                            @gr.render(inputs=batch_result)
+                            def render_clips(result):
+                                for clip in (result or {}).get('clips', []):
+                                    with gr.Column(elem_classes=['batch-clip'], key=clip['audio']):
+                                        gr.Markdown('### '+clip['label'])
+                                        player=gr.Audio(value=clip['audio'], type='filepath', interactive=False, label=clip['filename'], elem_classes=['studio-audio-output','studio-audio','batch-audio'], waveform_options=gr.WaveformOptions(waveform_color='#6e8b9f',waveform_progress_color='#d9b96e',trim_region_color='#d9b96e30'))
+                                        player.stop(fn=None,js='() => window.voiceStudioBatchPlayback?.finished('+str(clip['index']-1)+')',api_name=False,key='ended-'+clip['audio'])
+                                        gr.DownloadButton('Download '+clip['label'], value=clip['audio'])
                         with gr.Column(visible=False, elem_classes=['studio-presence']) as preview_actions:
                             preview_confirm = gr.Checkbox(label='I listened and checked the spoken words', value=False)
                             use_correction = gr.Checkbox(label='Edit transcript for this voice', value=False, interactive=True, elem_id='edit-transcript')
@@ -522,15 +663,34 @@ def build_ui():
                             preview_status = gr.Markdown(value='', visible=False, elem_classes=['studio-output-status'], sanitize_html=True)
                 preview_state = gr.State(None)
                 preview_transcript = gr.Textbox(visible=False)
-                save.click(save_voice_display, [ref_s,transcript_s,xvec_s], [saved,save_status], api_name='save_voice', concurrency_limit=1)
+                bind_busy_action(save,save_voice_display,[ref_s,transcript_s,xvec_s],[saved,save_status],'Save voice file','Saving voice...',1)
                 voice.upload(select_uploaded_voice,[voice],[info],api_name='inspect_voice',queue=False)
                 voice.clear(select_uploaded_voice,[voice],[info],api_name=False,queue=False)
                 use_correction.input(lambda: False, outputs=preview_confirm, api_name=False, queue=False)
                 correction.input(lambda: False, outputs=preview_confirm, api_name=False, queue=False)
-                button.click(generate_preview_atomic, [voice,text,instruction,language,seed,release,identity,*settings], [audio,download,status,preview_state,preview_transcript,preview_confirm,preview_actions,correction,preview_file,preview_status,use_correction], api_name='generate', concurrency_limit=1)
+                button.click(generation_started_with_state, outputs=[button,generation_notice,generation_busy],queue=False,api_name=False).then(generate_commentary_ui, [commentary_mode,clip_entries,voice,text,instruction,language,seed,release,identity,*settings], [audio,download,status,preview_state,preview_transcript,preview_confirm,preview_actions,correction,preview_file,preview_status,use_correction,batch_result,batch_panel,batch_status,batch_zip], api_name='generate_commentary', concurrency_limit=1,show_progress='full').then(generation_completed,inputs=[commentary_mode,clip_entries,voice,text,clone_busy,*settings],outputs=[button,generation_notice,generation_busy],queue=False,api_name=False)
+                gr.on(triggers=[voice.change,text.change,clip_entries.change,commentary_mode.change,clone_busy.change,generation_busy.change]+[control.change for control in settings],fn=update_generate_readiness,inputs=[commentary_mode,clip_entries,voice,text,generation_busy,clone_busy,*settings],outputs=button,queue=False,api_name=False)
+                # Preserve the existing single-clip API for integrations.
+                legacy_generate = gr.Button(visible=False)
+                legacy_generate.click(generate_preview_atomic, [voice,text,instruction,language,seed,release,identity,*settings], [audio,download,status,preview_state,preview_transcript,preview_confirm,preview_actions,correction,preview_file,preview_status,use_correction], api_name='generate', concurrency_limit=1)
+                play_all.click(fn=None,js="() => window.voiceStudioBatchPlayback?.play()",api_name=False)
+                stop_all.click(fn=None,js="() => window.voiceStudioBatchPlayback?.stop()",api_name=False)
                 clone_ticket=gr.State(0)
-                direct_preview.click(begin_clone_selection,outputs=clone_ticket,api_name=False,queue=False).then(clone_reference_selected, [clone_ticket,ref_s,transcript_s,xvec_s,text,instruction,language,seed,release,*settings], [audio,download,status,preview_state,preview_transcript,preview_confirm,saved,save_status,preview_actions,correction,preview_file,preview_status,use_correction,voice,info], api_name='clone_reference_preview', concurrency_limit=1)
-                save_preview.click(save_preview_corrected, [preview_state,preview_confirm,correction,use_correction], [preview_file,preview_status], api_name='save_preview_voice', concurrency_limit=1)
+                clone_busy=bind_busy_action(direct_preview,None,[clone_ticket,ref_s,transcript_s,xvec_s,text,instruction,language,seed,release,*settings],
+                    [audio,download,status,preview_state,preview_transcript,preview_confirm,saved,save_status,preview_actions,correction,preview_file,preview_status,use_correction,voice,info,batch_result,batch_panel],
+                    'Clone reference & generate commentary','Cloning & generating...',2,
+                    begin=begin_clone_selection,token=clone_ticket,adapter=clone_submission,finish_mode=commentary_mode,busy_state=clone_busy)
+                commentary_mode.change(lambda mode,busy:gr.skip() if busy else gr.update(interactive=mode=='single',value=('Clone reference & generate commentary' if mode=='single' else 'Switch to Single commentary to clone')),[commentary_mode,clone_busy],direct_preview,api_name=False,queue=False)
+                bind_busy_action(save_preview,save_preview_corrected,[preview_state,preview_confirm,correction,use_correction],[preview_file,preview_status],'Save as new voice .pt','Saving new voice...',1)
+                # Busy UI adapters use variadic signatures and extra UI-only outputs.
+                # Keep the existing public API contracts attached to the original
+                # typed callbacks so named clients and return tuple arity stay valid.
+                legacy_save = gr.Button(visible=False)
+                legacy_save.click(save_voice_display,[ref_s,transcript_s,xvec_s],[saved,save_status],api_name='save_voice',concurrency_limit=1)
+                legacy_clone = gr.Button(visible=False)
+                legacy_clone.click(clone_reference_selected,[clone_ticket,ref_s,transcript_s,xvec_s,text,instruction,language,seed,release,*settings],[audio,download,status,preview_state,preview_transcript,preview_confirm,saved,save_status,preview_actions,correction,preview_file,preview_status,use_correction,voice,info],api_name='clone_reference_preview',concurrency_limit=1)
+                legacy_save_preview = gr.Button(visible=False)
+                legacy_save_preview.click(save_preview_corrected,[preview_state,preview_confirm,correction,use_correction],[preview_file,preview_status],api_name='save_preview_voice',concurrency_limit=1)
         with gr.Accordion('General settings & model information', open=False, elem_classes=['generation-settings','studio-help','general-settings']):
             gr.Textbox(label='Model',value='Qwen3-TTS-12Hz-1.7B-Base',interactive=False)
             gr.Textbox(label='Checkpoint',value=str(MODEL_REPO/'snapshots'/(MODEL_REPO/'refs'/'main').read_text().strip()),interactive=False)
@@ -543,6 +703,14 @@ def build_ui():
             gr.Markdown('Generation settings are per workflow. GPU memory release and the random seed are inside each Generation settings section. Click a storage directory to browse local folders and choose its replacement. Choices persist after restart and affect future saves only; existing files are never moved. Model/checkpoint stay read-only.')
         with gr.Accordion('Storage & GPU help', open=False, elem_classes=['generation-settings','studio-help']):
             gr.Markdown('**Compare delivery:** try an empty instruction, then the same text and seed with a direction.\n\n**Local storage:** audio and settings are in `Outputs`; saved voices are in `Voices`.\n\n**GPU memory:** stop other Qwen servers before generating. Closing their tabs does not unload models.')
+        with gr.Accordion('Use via API', open=False, elem_classes=['generation-settings','studio-help','studio-utility-section'], elem_id='inline-api-section') as api_section:
+            gr.HTML('<div id="inline-api-host" class="studio-utility-host"></div>')
+        with gr.Accordion('Settings', open=False, elem_classes=['generation-settings','studio-help','studio-utility-section'], elem_id='inline-settings-section') as settings_section:
+            gr.HTML('<div id="inline-settings-host" class="studio-utility-host"></div>')
+        api_section.expand(fn=None,js="() => window.voiceStudioUtilities?.open('api')",api_name=False)
+        api_section.collapse(fn=None,js="() => window.voiceStudioUtilities?.close('api')",api_name=False)
+        settings_section.expand(fn=None,js="() => window.voiceStudioUtilities?.open('settings')",api_name=False)
+        settings_section.collapse(fn=None,js="() => window.voiceStudioUtilities?.close('settings')",api_name=False)
         with gr.Column(visible=False,elem_id='storage-picker-dialog') as folder_dialog:
             gr.Markdown('## Choose a storage folder')
             gr.Markdown('Local folders only. Choosing a folder affects future saves; existing files stay where they are.')
@@ -554,7 +722,7 @@ def build_ui():
             with gr.Row():
                 up=gr.Button('Parent folder')
                 browse=gr.Button('Open path')
-            folder_note=gr.Markdown('')
+            folder_note=gr.Markdown('',elem_classes=['studio-output-status'])
             with gr.Row():
                 confirm=gr.Button('Use this folder',variant='primary')
                 cancel_folder=gr.Button('Cancel',elem_id='cancel-storage-picker')
@@ -565,9 +733,14 @@ def build_ui():
         up.click(browse_storage_parent,[folder_path],[folder_path,child],api_name=False,queue=False)
         drive.input(browse_storage_path,[drive],[folder_path,child],api_name=False,queue=False)
         child.input(browse_storage_child,[folder_path,child],[folder_path,child],api_name=False,queue=False)
-        confirm.click(commit_storage_picker,[folder_kind,folder_path],[output_folder,voice_folder,storage_status,folder_dialog],api_name=False,queue=False)
+        bind_busy_action(confirm,None,[folder_kind,folder_path],[output_folder,voice_folder,storage_status,folder_dialog,folder_note],'Use this folder','Saving folder...',4,adapter=commit_storage_submission)
         cancel_folder.click(lambda:gr.update(visible=False),outputs=folder_dialog,api_name=False,queue=False)
         app.load(fn=None, js=ui_asset_text('night-sky.js'))
+        app.load(fn=None, js=ui_asset_text('batch-playback.js'))
+        app.load(fn=None, js=ui_asset_text('commentary-tabs.js'))
+        app.load(fn=None, js=ui_asset_text('operation-feedback.js'))
+        app.load(fn=None, js=ui_asset_text('generation-readiness.js'))
+        app.load(fn=None, js=ui_asset_text('inline-utilities.js'))
     return app
 
 if __name__ == '__main__':
