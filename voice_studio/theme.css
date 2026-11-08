@@ -341,3 +341,7 @@ footer[aria-label="Gradio footer navigation"]>button.show-api:hover,footer[aria-
 #generate-commentary:disabled { opacity:.65!important;cursor:wait!important; }
 /* Dynamic player listeners rebuild their Gradio parent; hide empty output structurally. */
 #batch-output:not(:has(.batch-clip)):not(:has(.studio-output-status p)){display:none!important}
+
+button.studio-operation-busy {cursor:wait!important;opacity:.72;}
+button.studio-operation-busy::before {content:"";display:inline-block;width:12px;height:12px;margin-right:8px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:studio-generating .8s linear infinite;vertical-align:middle;}
+@media(prefers-reduced-motion:reduce){button.studio-operation-busy::before{animation:none;}}

@@ -21,3 +21,8 @@ In **Load voice & generate**, choose **Timestamped clips**. Each row contains mi
 - Real Chrome, isolated localhost fixture with synthetic silent WAVs: editing, adding/removing rows, retained text across mode switches, batch submission, duplicate timestamp filenames, two output players, sequential Play all completion verified.
 - Actual model inference not repeated: another local Qwen instance was using GPU memory, leaving less than the existing 6 GiB guard. No live server was stopped or modified. Acoustic quality is not assessed by synthetic UI tests.
 - Batch clips use the same themed Gradio Audio waveform player as single commentary. Play all advances through the player's official end-of-media event. Shared delivery instructions, language and generation settings appear above both modes. Generation shows a persistent busy notice and disables the Generate button until success or failure finishes, including when previous outputs exist.
+
+## Submission feedback audit
+Generate, Clone reference & generate, Save as new voice, hidden legacy Save voice, Unload model and Use this folder have busy labels, disabled submission controls and error-safe restoration. Screen-reader busy attributes and live status announcements share the same filled spinner styling (reduced-motion respected). Folder errors stay inside the picker dialog. Navigation, reset defaults, playback and download controls remain immediate actions rather than showing artificial loading.
+
+Verification: 72 Python tests; delayed local synthetic browser checks for generation, clone failure, save failure, successful unload and invalid folder confirmation. Real model inference was not repeated for this UI lifecycle change.
