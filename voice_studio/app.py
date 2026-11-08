@@ -620,6 +620,7 @@ def build_ui():
         cancel_folder.click(lambda:gr.update(visible=False),outputs=folder_dialog,api_name=False,queue=False)
         app.load(fn=None, js=ui_asset_text('night-sky.js'))
         app.load(fn=None, js=ui_asset_text('batch-playback.js'))
+        app.load(fn=None, js=ui_asset_text('commentary-tabs.js'))
     return app
 
 if __name__ == '__main__':
