@@ -54,6 +54,10 @@ footer[aria-label="Gradio footer navigation"]>button.show-api img,footer[aria-la
 @media(prefers-reduced-motion:reduce){#voice-mode-workspace,#reference-panel{transition:none!important}}
 #voice-mode-workspace.generate-mode #reference-panel>*{min-width:var(--reference-content-width,0px)!important}
 #voice-mode-workspace.generate-mode #reference-panel{max-height:0;padding-top:0!important;padding-bottom:0!important;border-top-width:0!important;border-bottom-width:0!important}
+#design-inputs{display:none!important}
+#voice-mode-workspace.design-mode #clone-inputs{display:none!important}
+#voice-mode-workspace.design-mode #design-inputs{display:flex!important}
+#production-workspace:has(.design-mode) #batch-output{display:none!important}
 
 /* Full-width production desk: inputs left, listening/export right. */
 .gradio-container{max-width:none!important;width:100%!important;padding-left:32px!important;padding-right:32px!important}

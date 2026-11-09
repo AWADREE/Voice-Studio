@@ -224,7 +224,7 @@
     document.querySelectorAll('.studio-wav-output td a').forEach(a=>{
       if(a.dataset.studioDownload)return;a.dataset.studioDownload='true';
       const size=document.createElement('span');size.className='studio-file-size';size.textContent=a.textContent.replace('\u21e3','').trim();
-      a.textContent='Download WAV';a.append(size);a.setAttribute('aria-label','Download generated commentary WAV');a.classList.add('studio-download-link');
+      a.textContent='Download WAV';a.append(size);a.setAttribute('aria-label','Download generated audio WAV');a.classList.add('studio-download-link');
     });
   };
   if(!document.documentElement.dataset.filePolishBound){
@@ -251,7 +251,8 @@
             const button = event.target.closest('button[data-voice-mode]');
             if (!button) return;
             const generate = button.dataset.voiceMode === 'generate';
-            if(generate === workspace.classList.contains('generate-mode'))return;
+            const design = button.dataset.voiceMode === 'design';
+            if(generate === workspace.classList.contains('generate-mode') && design === workspace.classList.contains('design-mode'))return;
             clearTimeout(modeTimer);
             // Freeze the inner form at its expanded width in BOTH directions.
             // Otherwise the expanding zero-width grid rewraps the source tabs,
@@ -271,6 +272,7 @@
                 animatePickerGeometry();
             },matchMedia('(prefers-reduced-motion: reduce)').matches?0:260);
             workspace.classList.toggle('generate-mode', generate);
+            workspace.classList.toggle('design-mode', design);
             reference.inert = generate;
             reference.setAttribute('aria-hidden', String(generate));
             modeNav.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b === button)));

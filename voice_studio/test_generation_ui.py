@@ -8,7 +8,8 @@ class GenerationUiTests(unittest.TestCase):
   source=open(app.__file__,encoding='utf-8').read().split('def compose_controls')[1].split('def output_controls')[0]
   self.assertLess(source.index("label='Delivery instruction"),source.index("with gr.Tabs"))
   self.assertLess(source.index("label='Language'"),source.index("with gr.Tabs"))
-  self.assertLess(source.index("gr.Accordion('Generation settings'"),source.index("with gr.Tabs"))
+  self.assertLess(source.index('generation_settings_controls()'),source.index("with gr.Tabs"))
+  self.assertIn("gr.Accordion('Generation settings'",source)
  def test_native_players_and_always_cleanup(self):
   source=open(app.__file__,encoding='utf-8').read()
   self.assertIn("player=gr.Audio(",source);self.assertIn('player.stop(',source)
