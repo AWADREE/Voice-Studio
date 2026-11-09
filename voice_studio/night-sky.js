@@ -250,6 +250,21 @@
         modeNav.dataset.bound = 'true';
         let modeTimer;
         let formMotion;
+        const delivery=document.querySelector('#base-delivery-instruction');
+        let deliveryMotion;
+        const panelInset=()=>{
+            // The reference panel removes its padding while Generate is active.
+            // Its sibling keeps the same responsive panel inset at every width.
+            const style=getComputedStyle(reference.nextElementSibling || reference);
+            return ['paddingLeft','paddingRight','borderLeftWidth','borderRightWidth'].reduce((sum,key)=>sum+(parseFloat(style[key])||0),0);
+        };
+        const stopDeliveryMotion=()=>{
+            if(!deliveryMotion)return;
+            const motion=deliveryMotion;deliveryMotion=null;
+            motion.animation.cancel();
+            delivery.style.removeProperty('display');
+            delivery.inert=false;
+        };
         const stopFormMotion=()=>{
             if(!formMotion)return;
             const motion=formMotion;formMotion=null;
@@ -279,15 +294,26 @@
             const toOpacity=Number(getComputedStyle(to).opacity);
             const fromTransform=getComputedStyle(from).transform;
             const toTransform=getComputedStyle(to).transform;
+            const deliveryChanges=Boolean(delivery && (priorMode==='design') !== (nextMode==='design'));
+            const deliveryStartHeight=delivery?.getBoundingClientRect().height || 0;
+            const deliveryStartOpacity=delivery ? Number(getComputedStyle(delivery).opacity) : 0;
+            const deliveryStartMargin=delivery ? getComputedStyle(delivery).marginBottom : '0px';
+            const deliveryGap=delivery ? parseFloat(getComputedStyle(delivery.parentElement).rowGap) || 0 : 0;
+            const deliveryWasMoving=Boolean(deliveryMotion);
             stopFormMotion();
+            if(deliveryChanges)stopDeliveryMotion();
             clearTimeout(modeTimer);
             // Freeze the inner form at its expanded width in BOTH directions.
             // Otherwise the expanding zero-width grid rewraps the source tabs,
             // and the picker animator preserves that temporary extra row.
             const narrow = matchMedia('(max-width:800px)').matches;
             const panelWidth = narrow ? workspace.clientWidth : (workspace.clientWidth - 24) / 2;
-            workspace.style.setProperty('--reference-content-width', Math.max(0, panelWidth - 48) + 'px');
+            workspace.style.setProperty('--reference-content-width', Math.max(0, panelWidth - panelInset()) + 'px');
             workspace.classList.add('mode-transitioning');
+            if(deliveryChanges && !reduced && design){
+                delivery.style.setProperty('display','block','important');
+                delivery.inert=true;
+            }
             if(switchForms && !reduced){
                 reference.style.height=startHeight+'px';
                 from.style.setProperty('display','flex','important');
@@ -309,6 +335,20 @@
             },matchMedia('(prefers-reduced-motion: reduce)').matches?0:260);
             workspace.classList.toggle('generate-mode', generate);
             workspace.classList.toggle('design-mode', design);
+            if(deliveryChanges && !reduced){
+                const deliveryEndHeight=design?0:delivery.getBoundingClientRect().height;
+                const firstHeight=deliveryWasMoving?deliveryStartHeight:design?deliveryStartHeight:0;
+                const firstOpacity=deliveryWasMoving?deliveryStartOpacity:design?1:0;
+                const gap=deliveryGap+'px';
+                const frames=design?
+                    [{height:firstHeight+'px',opacity:firstOpacity,marginBottom:deliveryWasMoving?deliveryStartMargin:'0px',minHeight:'0px',overflow:'clip'},
+                     {height:'0px',opacity:0,marginBottom:'-'+gap,minHeight:'0px',overflow:'clip'}]:
+                    [{height:firstHeight+'px',opacity:firstOpacity,marginBottom:deliveryWasMoving?deliveryStartMargin:'-'+gap,minHeight:'0px',overflow:'clip'},
+                     {height:deliveryEndHeight+'px',opacity:1,marginBottom:'0px',minHeight:'0px',overflow:'clip'}];
+                const animation=delivery.animate(frames,{duration:240,easing:'cubic-bezier(.2,.7,.2,1)',fill:design?'forwards':'none'});
+                const motion={animation};deliveryMotion=motion;
+                animation.onfinish=()=>{if(deliveryMotion===motion)stopDeliveryMotion();};
+            }
             if(switchForms && !reduced){
                 reference.style.height='auto';
                 const endHeight=reference.getBoundingClientRect().height;
