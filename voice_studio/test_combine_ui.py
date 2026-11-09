@@ -38,6 +38,22 @@ class CombineUiTests(unittest.TestCase):
                 bad=app.combine_generated_clips(result,0,2,'generate','batch')
                 self.assertEqual(bad[:2],(None,None))
                 self.assertIn('No audio was truncated',bad[2])
+    def test_recombine_uses_current_editor_time_and_rejects_changed_text(self):
+        with tempfile.TemporaryDirectory() as folder:
+            wav=Path(folder)/'clip.wav';sf.write(wav,np.ones(100)*.25,100,subtype='PCM_24')
+            original={'clips':[{'audio':str(wav),'minutes':0,'seconds':1,'index':1,'text':'hello'}], 'requested_clips':1}
+            rows=[{'minutes':0,'seconds':3,'text':'hello'}]
+            with patch.object(app,'OUTPUTS',Path(folder)/'out'),patch.object(app,'authorize_generated_file'):
+                path,_,_=app.combine_generated_clips(original,0,5,'generate','batch',rows)
+                audio,sr=sf.read(path);self.assertEqual(sr,100)
+                np.testing.assert_array_equal(audio[:300],0)
+                np.testing.assert_allclose(audio[300:400],.25,atol=2**-23)
+                self.assertEqual(original['clips'][0]['seconds'],1)
+                bad=app.combine_generated_clips(original,0,5,'generate','batch',[{'minutes':0,'seconds':3,'text':'changed'}])
+                self.assertIsNone(bad[0]);self.assertIn('commentary changed',bad[2])
+                missing=app.combine_generated_clips(original,0,5,'generate','batch',[])
+                self.assertIsNone(missing[0])
+
     def test_other_modes_cannot_combine(self):
         for workflow,mode in [('clone','batch'),('design','single'),('generate','single')]:
             with patch('combine_clips.combine_timeline') as combine:

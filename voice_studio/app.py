@@ -664,15 +664,34 @@ def commit_storage_picker(kind,path,request: gr.Request):
 
 
 
-def combine_generated_clips(result, minutes, seconds, workflow, mode):
-    """Combine a server-held generated batch, never the current editable rows."""
+def current_batch_timing(result, rows):
+    from batch_generation import validate_entries
+    entries = validate_entries(rows)
+    if not isinstance(result, dict) or not isinstance(result.get('clips'), list):
+        raise ValueError('Generate clips before combining them.')
+    if len(entries) != result.get('requested_clips', len(result['clips'])):
+        raise ValueError('The number of clips changed. Generate the clips again before combining.')
+    updated = []
+    for clip in result['clips']:
+        index = clip.get('index')
+        if not isinstance(index, int) or index < 1 or index > len(entries):
+            raise ValueError('The generated clips no longer match the editor. Generate them again.')
+        entry = entries[index - 1]
+        if clip.get('text') != entry['text']:
+            raise ValueError(f'Clip {index} commentary changed. Generate the clips again before combining.')
+        updated.append({**clip, 'minutes': entry['minutes'], 'seconds': entry['seconds'], 'label': entry['label']})
+    return {**result, 'clips': updated}
+
+
+def combine_generated_clips(result, minutes, seconds, workflow, mode, rows=None):
+    """Combine generated audio using validated current editor timestamps."""
     if workflow != 'generate' or mode != 'batch':
         return None, None, 'Switch to Generate / Multiple to combine generated clips.'
     if not LOCK.acquire(blocking=False):
         return None, None, 'Another operation is running. Wait for it to finish, then combine.'
     try:
         from combine_clips import combine_timeline
-        combined = combine_timeline(result, minutes, seconds, OUTPUTS)
+        combined = combine_timeline(current_batch_timing(result, rows) if rows is not None else result, minutes, seconds, OUTPUTS)
         authorize_generated_file(Path(combined['audio']))
         return combined['audio'], combined['audio'], combined['status']
     except Exception as error:
@@ -681,13 +700,13 @@ def combine_generated_clips(result, minutes, seconds, workflow, mode):
         LOCK.release()
 
 
-def render_timeline_combine(result, workflow, mode):
+def render_timeline_combine(result, workflow, mode, rows=None):
     stateful = isinstance(result, gr.State)
     if not stateful and not (result or {}).get('clips'):
         return
     with gr.Column(visible=not stateful, elem_id='timeline-combine', elem_classes=['timeline-combine']) as combine_panel:
         gr.Markdown('### Combine clips')
-        gr.Markdown('Choose the full timeline length. Generated clips keep their original timestamps; gaps are silent and overlaps play together. No clip is cut short.', elem_classes=['section-note'])
+        gr.Markdown('Choose the full timeline length. Clips use the current timestamps in the editor; gaps are silent and overlaps play together. No clip is cut short.', elem_classes=['section-note'])
         with gr.Row():
             minutes = gr.Number(value=0, precision=0, minimum=0, maximum=1440, label='Total duration: minutes', elem_classes=['timeline-duration'])
             seconds = gr.Number(value=0, precision=0, minimum=0, maximum=59, label='Total duration: seconds', elem_classes=['timeline-duration'])
@@ -698,18 +717,19 @@ def render_timeline_combine(result, workflow, mode):
             combined_download = gr.DownloadButton('Download combined WAV')
         def start_combine():
             return gr.update(value='Combining...',interactive=False),gr.update(interactive=False),gr.update(interactive=False),None,None,'Combining generated clips...'
-        def execute_combine(total_minutes,total_seconds,active_workflow,active_mode,generated_result):
-            return combine_generated_clips(generated_result,total_minutes,total_seconds,active_workflow,active_mode)
+        def execute_combine(total_minutes,total_seconds,active_workflow,active_mode,generated_result,current_rows):
+            return combine_generated_clips(generated_result,total_minutes,total_seconds,active_workflow,active_mode,current_rows)
         def finish_combine():
             return gr.update(value='Combine',interactive=True),gr.update(interactive=True),gr.update(interactive=True)
         generated_state = result if stateful else gr.State(result)
+        editor_rows = rows if rows is not None else gr.State(None)
         combine.click(start_combine,outputs=[combine,minutes,seconds,combined_audio,combined_download,notice],queue=False,api_name=False).then(
-            execute_combine,[minutes,seconds,workflow,mode,generated_state],[combined_audio,combined_download,notice],concurrency_limit=1,api_name=False,
+            execute_combine,[minutes,seconds,workflow,mode,generated_state,editor_rows],[combined_audio,combined_download,notice],concurrency_limit=1,api_name=False,
             js="(...args) => { args[2] = document.querySelector('#voice-mode-tabs button[aria-pressed=\"true\"]')?.dataset.voiceMode || args[2]; args[3] = document.querySelector('#commentary-mode-tabs [role=\"tab\"][aria-selected=\"true\"]')?.textContent.trim() === 'Multiple' ? 'batch' : 'single'; return args; }").then(
             finish_combine,outputs=[combine,minutes,seconds],queue=False,api_name=False)
         def clear_combined():
             return None,None,''
-        gr.on(triggers=[minutes.input,seconds.input],fn=clear_combined,outputs=[combined_audio,combined_download,notice],queue=False,api_name=False)
+        gr.on(triggers=[minutes.input,seconds.input]+([rows.change] if rows is not None else []),fn=clear_combined,outputs=[combined_audio,combined_download,notice],queue=False,api_name=False)
         if stateful:
             result.change(lambda batch:gr.update(visible=bool((batch or {}).get('clips'))),inputs=result,outputs=combine_panel,queue=False,api_name=False)
             result.change(clear_combined,outputs=[combined_audio,combined_download,notice],queue=False,api_name=False)
@@ -955,7 +975,7 @@ def build_ui():
                                         player=gr.Audio(value=clip['audio'], type='filepath', interactive=False, label=clip['filename'], elem_classes=['studio-audio-output','studio-audio','batch-audio'], waveform_options=gr.WaveformOptions(waveform_color='#6e8b9f',waveform_progress_color='#d9b96e',trim_region_color='#d9b96e30'))
                                         player.stop(fn=None,js='() => window.voiceStudioBatchPlayback?.finished('+str(clip['index']-1)+')',api_name=False,key='ended-'+clip['audio'])
                                         gr.DownloadButton('Download '+clip['label'], value=clip['audio'])
-                        render_timeline_combine(batch_result, workflow, commentary_mode)
+                        render_timeline_combine(batch_result, workflow, commentary_mode, clip_entries)
                         with gr.Column(visible=False, elem_classes=['studio-presence'], elem_id='audition-save-actions') as preview_actions:
                             preview_confirm = gr.State(False)  # Compatibility slot; no approval UI or save gate.
                             use_correction = gr.Checkbox(label='Correct transcript before saving', value=False, interactive=True, elem_id='edit-transcript')
