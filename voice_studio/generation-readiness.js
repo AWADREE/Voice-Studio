@@ -11,6 +11,7 @@
   let contentValid=true;
   const workspace=document.getElementById('voice-mode-workspace');
   const mode=workspace?.classList.contains('generate-mode')?'generate':workspace?.classList.contains('design-mode')?'design':'clone';
+  root.classList?.toggle('multiple-mode',mode==='generate'&&!!batch);
   let valid=!busy;
   if(batch&&mode==='generate'){
    const rows=[...tabs.querySelectorAll('.clip-list .clip-row:not([data-removing])')];

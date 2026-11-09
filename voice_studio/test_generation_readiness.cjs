@@ -7,7 +7,8 @@ const reference={querySelector:s=>s==='textarea'?transcript:s==='input[type="che
 const tabs={querySelector:s=>s.includes('role=')?{textContent:batch?'Multiple':'Single commentary'}:text,
  querySelectorAll:()=>[],parentElement:{querySelectorAll:()=>[number],querySelector:()=>language}};
 const workspace={classList:{contains:name=>name===mode+'-mode'}};
-const root={addEventListener:(type,f)=>{refresh=f}};
+const rootClasses=new Set();
+const root={classList:{toggle:(name,on)=>on?rootClasses.add(name):rootClasses.delete(name)},addEventListener:(type,f)=>{refresh=f}};
 const document={getElementById:id=>({'production-workspace':root,'generate-commentary':button,
  'voice-mode-workspace':workspace,'clone-inputs':reference,'commentary-mode-tabs':tabs}[id]),
  querySelector:s=>s==='#design-inputs textarea'?description:voice};
@@ -25,7 +26,8 @@ text.value='Valid';mode='design';refresh();assert(button.disabled);
 description.value='Warm baritone';refresh();assert(!button.disabled);
 mode='generate';refresh();assert(button.disabled);
 voice={getAttribute:()=> 'voice.pt'};refresh();assert(!button.disabled);
-batch=true;refresh();assert(button.disabled);
+batch=true;refresh();assert(button.disabled);assert(rootClasses.has('multiple-mode'));
+mode='clone';refresh();assert(!rootClasses.has('multiple-mode'));mode='generate';refresh();
 batch=false;button.textContent='Generating commentary...';refresh();assert(button.disabled);
 button.textContent='Generate commentary';refresh();assert(!button.disabled);
 language.value='';refresh();assert(button.disabled);

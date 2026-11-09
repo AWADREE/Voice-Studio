@@ -393,3 +393,13 @@ footer[aria-label="Gradio footer navigation"]>button[data-inline-utility-trigger
 .studio-utility-host :is(a,button):hover{text-decoration:none!important}
 .studio-utility-host .wrap:has(>.wrap-inner [role=listbox]),.studio-utility-host .wrap:has(>.secondary-wrap [role=listbox]),.studio-utility-host .wrap-inner:has([role=listbox]){background:#102335!important;border:0!important;border-radius:9px!important;box-shadow:none!important}
 .studio-utility-host .secondary-wrap{padding:8px 12px!important;min-height:40px;box-sizing:border-box}
+
+/* Timeline assembly is available only with generated Multiple clips. */
+#production-workspace:not(.multiple-mode) #timeline-combine{display:none!important}
+.timeline-combine{gap:14px!important;padding-top:18px!important;border-top:1px solid #294052!important}
+.timeline-combine>.row{gap:12px!important}
+.timeline-duration{min-width:0!important;flex:1 1 120px!important}
+.timeline-duration input{background:#102335!important;border:0!important;padding:10px 12px!important}
+
+/* A media result exists only when Gradio has supplied its audio download link. */
+#combined-timeline-result:not(:has(a.download-link[href])){display:none!important}

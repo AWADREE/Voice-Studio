@@ -110,4 +110,5 @@ def run_batch(rows, *, generate_clip, output_root, lock, release_after=True,
     else:
         status += ' Timestamps label the clips; they do not add silence.'
     return {'clips': clips, 'archive': archive, 'error': error, 'status': status,
+            'requested_clips': len(entries), 'complete': len(clips) == len(entries),
             'batch_dir': str(folder) if folder else None}
