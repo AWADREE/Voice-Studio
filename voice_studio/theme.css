@@ -403,3 +403,14 @@ footer[aria-label="Gradio footer navigation"]>button[data-inline-utility-trigger
 
 /* A media result exists only when Gradio has supplied its audio download link. */
 #combined-timeline-result:not(:has(a.download-link[href])){display:none!important}
+
+/* Keep regeneration's Listen surface identical to an empty first generation.
+   Retain previous media in memory so a failed request can restore it. */
+#listen-panel>.studio-audio-output:has(>.wrap:not(.hide)){
+  height:166px!important;min-height:166px!important;max-height:166px!important;
+  padding:20px!important;box-sizing:border-box!important;overflow:hidden!important;
+  background:#091a2a!important;border-radius:10px!important;
+}
+#listen-panel>.studio-audio-output:has(>.wrap:not(.hide))>:not(.wrap){visibility:hidden!important}
+#listen-panel>.studio-audio-output>.wrap:not(.hide){background:#091a2a!important;border:1px solid #365065!important;border-radius:10px!important}
+#listen-panel:has(>.studio-audio-output>.wrap:not(.hide))>:is(.studio-wav-output,.studio-output-status,#batch-output,#timeline-combine,#audition-save-actions){display:none!important}

@@ -12,3 +12,7 @@
 
 ## Update: direct audition saving (2026-11-09)
 The audition approval checkbox and its backend save requirement have been removed from Clone and Design. Generate a sample, optionally correct its transcript, then choose Save audition as voice .pt directly. This supersedes earlier checkbox/approval descriptions in this verification record. Existing preview integrity checks, original-reference cloning, transcript correction, and explicit (not automatic) saving remain.
+
+## Listen loading consistency (2026-11-09)
+First generation and regeneration with existing audio now use the same 166px opaque loading surface. Existing export/status/save sections temporarily collapse with their existing presence animation; native progress/spinner remains. Previous media is not cleared, preserving failure recovery. Browser reproduction with delayed fixture responses measured both settled Listen panels at 360.1875px in the same viewport; repeat generation previously showed extra overlays and a taller panel. Regression verification: 132 Python tests and all 10 JavaScript test scripts passed. Fixture uses existing generated audio rather than fresh inference.
+Controlled browser failure also restored the prior waveform, download, transcript correction and Save button, with the failure message visible.

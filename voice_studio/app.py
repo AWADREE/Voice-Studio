@@ -942,7 +942,7 @@ def build_ui():
                                         player.stop(fn=None,js='() => window.voiceStudioBatchPlayback?.finished('+str(clip['index']-1)+')',api_name=False,key='ended-'+clip['audio'])
                                         gr.DownloadButton('Download '+clip['label'], value=clip['audio'])
                         render_timeline_combine(batch_result, workflow, commentary_mode)
-                        with gr.Column(visible=False, elem_classes=['studio-presence']) as preview_actions:
+                        with gr.Column(visible=False, elem_classes=['studio-presence'], elem_id='audition-save-actions') as preview_actions:
                             preview_confirm = gr.State(False)  # Compatibility slot; no approval UI or save gate.
                             use_correction = gr.Checkbox(label='Correct transcript before saving', value=False, interactive=True, elem_id='edit-transcript')
                             correction = gr.Textbox(label='Actual words in audition sample', lines=3, visible=True, interactive=True, elem_id='correction-editor')
