@@ -451,7 +451,7 @@ def compose_controls(batch=False, clone_button=None, clone_busy=None):
         with gr.Tabs(elem_id='commentary-mode-tabs'):
             with gr.Tab('Single commentary') as single_tab:
                 text = gr.Textbox(label='Commentary text', lines=4, placeholder='Normal summon Dark Necromancer...')
-            with gr.Tab('Multiple clips') as batch_tab:
+            with gr.Tab('Multiple') as batch_tab:
                 gr.Markdown('Each timestamp labels a separate clip for editing. No silence is inserted. Shared settings above apply to every clip.', elem_classes=['section-note'])
                 entries = gr.HTML([{'minutes':0,'seconds':0,'text':''}], html_template=ui_asset_text('clip-editor.html'), js_on_load=ui_asset_text('paragraph-timing.js')+'\n'+ui_asset_text('clip-editor.js'), elem_id='clip-editor', css_template=ui_asset_text('clip-editor.css'))
         if clone_button is not None:

@@ -6,7 +6,7 @@
   const button=document.getElementById('generate-commentary');if(!button)return;
   const voice=document.querySelector('.studio-voice-input .filename[aria-label]');
   const tabs=document.getElementById('commentary-mode-tabs');
-  const batch=tabs?.querySelector('[role="tab"][aria-selected="true"]')?.textContent.includes('Multiple clips');
+  const batch=tabs?.querySelector('[role="tab"][aria-selected="true"]')?.textContent.trim()==='Multiple';
   const busy=/Generating/.test(button.textContent);
   let contentValid=true;
   const workspace=document.getElementById('voice-mode-workspace');

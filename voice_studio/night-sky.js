@@ -291,7 +291,7 @@
             const commentaryTabs=document.querySelector('#commentary-mode-tabs');
             const commentaryTab=(name)=>[...(commentaryTabs?.querySelectorAll('[role="tab"]')||[])].find(tab=>tab.textContent.trim()===name);
             if(priorMode==='generate' && nextMode!=='generate'){
-                modeNav.dataset.resumeBatch=String(commentaryTab('Multiple clips')?.getAttribute('aria-selected')==='true');
+                modeNav.dataset.resumeBatch=String(commentaryTab('Multiple')?.getAttribute('aria-selected')==='true');
                 commentaryTab('Single commentary')?.click();
             }
             const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -388,7 +388,7 @@
                 let observer, timeout;
                 const stop=()=>{observer?.disconnect();clearTimeout(timeout);stopComposerRestore=null;};
                 const restore=()=>{
-                    const target=commentaryTab('Multiple clips');
+                    const target=commentaryTab('Multiple');
                     if(!workspace.classList.contains('generate-mode')){stop();return;}
                     if(target){stop();target.click();}
                 };
