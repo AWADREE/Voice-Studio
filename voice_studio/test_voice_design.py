@@ -12,6 +12,35 @@ import app
 
 
 class VoiceDesignTests(unittest.TestCase):
+    def test_reference_gui_and_cli_parity(self):
+        from qwen_tts.cli.demo import build_demo, build_parser
+        upstream_model = SimpleNamespace(
+            tts_model_type='voice_design',
+            get_supported_languages=lambda: [language.lower() for language in app.LANGUAGES],
+            get_supported_speakers=lambda: [],
+        )
+        reference = build_demo(SimpleNamespace(model=upstream_model), 'local VoiceDesign', {}).get_config_file()
+        ref_controls = [c for c in reference['components'] if c['type'] in ('textbox', 'dropdown', 'button', 'audio')]
+        self.assertEqual([c['type'] for c in ref_controls], ['textbox', 'dropdown', 'textbox', 'button', 'audio', 'textbox'])
+        ref_text, ref_language, ref_instruction = ref_controls[:3]
+        studio = app.build_ui().get_config_file()
+        components = {c['id']: c for c in studio['components']}
+        design = next(d for d in studio['dependencies'] if d.get('api_name') is False and any(components[i]['props'].get('label') == 'Voice design instruction' for i in d['inputs']))
+        text, instruction, language = (components[i]['props'] for i in design['inputs'][:3])
+        self.assertEqual(text['value'], ref_text['props']['value'])
+        self.assertEqual(instruction['value'], ref_instruction['props']['value'])
+        self.assertEqual(language['value'], ref_language['props']['value'])
+        self.assertEqual({choice[1] for choice in language['choices']}, {choice[1] for choice in ref_language['props']['choices']})
+        self.assertEqual({action.dest for action in build_parser()._actions if action.dest in app.SETTING_NAMES},
+                         set(app.SETTING_NAMES) - {'do_sample', 'subtalker_dosample'})
+
+    def test_cached_design_defaults(self):
+        revision_file = app.DESIGN_MODEL_REPO/'refs'/'main'
+        if not revision_file.is_file():
+            self.skipTest('VoiceDesign checkpoint is not cached')
+        config_file = app.DESIGN_MODEL_REPO/'snapshots'/revision_file.read_text().strip()/'generation_config.json'
+        self.assertEqual(app.generation_options([]), json.loads(config_file.read_text()))
+
     def test_design_forwards_public_api_and_sampling(self):
         fake = MagicMock()
         fake.generate_voice_design.return_value = ([np.zeros(2400, dtype=np.float32)], 24000)
@@ -112,6 +141,10 @@ class VoiceDesignTests(unittest.TestCase):
         self.assertEqual(labels[5:], ['Maximum new tokens','Temperature','Top-k','Top-p','Repetition penalty','Enable speech sampling','Subtalker temperature','Subtalker top-k','Subtalker top-p','Enable subtalker sampling'])
         self.assertEqual(len(design['outputs']), 11)
         self.assertTrue(any(c['props'].get('elem_id') == 'design-inputs' for c in cfg['components']))
+        self.assertIn('top drawer', components[design['inputs'][0]]['props']['value'])
+        self.assertIn('incredulous tone', components[design['inputs'][1]]['props']['value'])
+        self.assertEqual(components[design['inputs'][2]]['props']['value'], 'Auto')
+        self.assertEqual({choice[1] for choice in components[design['inputs'][2]]['props']['choices']}, set(app.LANGUAGES))
 
 
 if __name__ == '__main__':

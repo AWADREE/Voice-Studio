@@ -717,9 +717,9 @@ def build_ui():
                             with gr.Column(elem_id='design-inputs'):
                                 gr.Markdown('## Design a voice')
                                 gr.Markdown('Describe a new voice and create a sample to review. Each generation can vary.', elem_classes=['section-note'])
-                                design_text = gr.Textbox(label='Preview text', lines=4, placeholder='Words for your designed voice to speak.')
+                                design_text = gr.Textbox(label='Preview text', lines=4, value="It's in the top drawer... wait, it's empty? No way, that's impossible! I'm sure I put it there!")
                                 design_language = gr.Dropdown(LANGUAGES, value='Auto', label='Language')
-                                design_description = gr.Textbox(label='Voice design instruction', lines=3, placeholder='Describe the voice, age, tone, accent, and delivery you want.')
+                                design_description = gr.Textbox(label='Voice design instruction', lines=3, value='Speak in an incredulous tone, but with a hint of panic beginning to creep into your voice.')
                                 design_seed, design_release, _, design_settings = generation_settings_controls(include_identity=False)
                                 design_button = gr.Button('Design voice & preview', elem_classes=['primary-action'], elem_id='design-voice-preview')
                         with gr.Column(scale=1, min_width=340, elem_classes=['studio-panel']):
