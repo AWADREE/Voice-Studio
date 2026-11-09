@@ -411,6 +411,15 @@ footer[aria-label="Gradio footer navigation"]>button[data-inline-utility-trigger
   padding:20px!important;box-sizing:border-box!important;overflow:hidden!important;
   background:#091a2a!important;border-radius:10px!important;
 }
-#listen-panel>.studio-audio-output:has(>.wrap:not(.hide))>:not(.wrap){visibility:hidden!important}
+#listen-panel>.studio-audio-output>:not(.wrap){transition:opacity .24s ease,visibility .24s ease;opacity:1}
+#listen-panel>.studio-audio-output:has(>.wrap:not(.hide))>:not(.wrap){opacity:0!important;visibility:hidden!important}
+#listen-panel>.studio-audio-output>.wrap{transition:opacity .24s ease,display .24s allow-discrete;opacity:1}
+#listen-panel>.studio-audio-output>.wrap.hide{opacity:0}
 #listen-panel>.studio-audio-output>.wrap:not(.hide){background:#091a2a!important;border:1px solid #365065!important;border-radius:10px!important}
-#listen-panel:has(>.studio-audio-output>.wrap:not(.hide))>:is(.studio-wav-output,.studio-output-status,#batch-output,#timeline-combine,#audition-save-actions){display:none!important}
+@starting-style{#listen-panel>.studio-audio-output>.wrap:not(.hide){opacity:0}}
+#listen-panel>:is(.studio-wav-output,.studio-output-status,#batch-output,#timeline-combine,#audition-save-actions){transition:opacity .24s ease,display .24s allow-discrete;opacity:1}
+#listen-panel:has(>.studio-audio-output>.wrap:not(.hide))>:is(.studio-wav-output,.studio-output-status,#batch-output,#timeline-combine,#audition-save-actions){display:none!important;opacity:0!important}
+@starting-style{#listen-panel>:is(.studio-wav-output,.studio-output-status,#batch-output,#timeline-combine,#audition-save-actions){opacity:0}}
+@media(prefers-reduced-motion:reduce){
+  #listen-panel>.studio-audio-output>:not(.wrap),#listen-panel>.studio-audio-output>.wrap,#listen-panel>:is(.studio-wav-output,.studio-output-status,#batch-output,#timeline-combine,#audition-save-actions){transition-duration:0s!important}
+}
