@@ -423,3 +423,8 @@ footer[aria-label="Gradio footer navigation"]>button[data-inline-utility-trigger
 @media(prefers-reduced-motion:reduce){
   #listen-panel>.studio-audio-output>:not(.wrap),#listen-panel>.studio-audio-output>.wrap,#listen-panel>:is(.studio-wav-output,.studio-output-status,#batch-output,#timeline-combine,#audition-save-actions){transition-duration:0s!important}
 }
+
+/* Transcript edits are saved deliberately; normal Design download is separate. */
+#save-corrected-audition{display:none!important}
+#listen-panel:has(#edit-transcript input:checked) #save-corrected-audition{display:flex!important}
+body:has(#voice-mode-workspace.generate-mode) #audition-save-actions{display:none!important}

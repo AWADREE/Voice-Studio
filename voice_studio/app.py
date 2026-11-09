@@ -577,6 +577,17 @@ def save_preview_corrected(preview, confirmed, correction, use_correction=False)
     return save_preview_display(preview, confirmed)
 
 
+def design_download_visibility(preview, workflow, busy):
+    valid = workflow == 'design' and isinstance(preview, dict) and preview.get('source') == 'design_sample'
+    return gr.update(visible=valid, interactive=valid and not busy)
+
+
+def save_designed_voice(preview, workflow, confirmed, correction, use_correction):
+    if workflow != 'design' or not isinstance(preview, dict) or preview.get('source') != 'design_sample':
+        raise gr.Error('Generate a Design sample before downloading its voice.')
+    return save_preview_corrected(preview, confirmed, correction, use_correction)
+
+
 def reference_controls():
     audio = gr.Audio(label='Reference audio', type='filepath', sources=['upload','microphone'], elem_classes=['studio-audio','studio-reference-audio'], waveform_options=gr.WaveformOptions(waveform_color='#6e8b9f', waveform_progress_color='#d9b96e', trim_region_color='#d9b96e30'))
     include = gr.Checkbox(label='Include reference transcript', value=True)
@@ -912,6 +923,9 @@ def build_ui():
                                 gr.Markdown('## Design a voice')
                                 gr.Markdown('Describe a new voice and create a sample to review. Each generation can vary.', elem_classes=['section-note'])
                                 design_description = gr.Textbox(label='Voice design instruction', lines=3, value='', placeholder='Speak in an incredulous tone, but with a hint of panic beginning to creep into your voice.')
+                                design_download = gr.Button('Download voice', visible=False, elem_id='design-download-voice', elem_classes=['studio-presence'])
+                                design_file = gr.File(label='Designed voice (.pt)', interactive=False, visible=False, elem_id='design-voice-file')
+                                design_save_status = gr.Markdown(value='', visible=False, elem_classes=['studio-output-status'])
                         with gr.Column(scale=1, min_width=340, elem_classes=['studio-panel']):
                             gr.Markdown('## Generate')
                             gr.Markdown('Write an audition in Clone or Design. Generate supports single commentary and multiple clips.', elem_classes=['section-note'])
@@ -946,7 +960,7 @@ def build_ui():
                             preview_confirm = gr.State(False)  # Compatibility slot; no approval UI or save gate.
                             use_correction = gr.Checkbox(label='Correct transcript before saving', value=False, interactive=True, elem_id='edit-transcript')
                             correction = gr.Textbox(label='Actual words in audition sample', lines=3, visible=True, interactive=True, elem_id='correction-editor')
-                            save_preview = gr.Button('Save audition as voice .pt', elem_classes=['primary-action'])
+                            save_preview = gr.Button('Save audition as voice .pt', elem_id='save-corrected-audition', elem_classes=['primary-action','studio-presence'])
                             preview_file = gr.File(label='New preview voice (.pt)', interactive=False, visible=False, elem_classes=['studio-presence'])
                             preview_status = gr.Markdown(value='', visible=False, elem_classes=['studio-output-status'], sanitize_html=True)
                 preview_state = gr.State(None)
@@ -978,6 +992,8 @@ def build_ui():
                     begin=begin_clone_selection,token=clone_ticket,adapter=clone_submission,finish_mode=commentary_mode,busy_state=clone_busy)
                 commentary_mode.change(lambda mode,busy:gr.skip() if busy else gr.update(interactive=mode=='single',value=('Clone reference & generate commentary' if mode=='single' else 'Switch to Single commentary to clone')),[commentary_mode,clone_busy],direct_preview,api_name=False,queue=False)
                 bind_busy_action(save_preview,save_preview_corrected,[preview_state,preview_confirm,correction,use_correction],[preview_file,preview_status],'Save audition as voice .pt','Saving voice...',1)
+                gr.on(triggers=[preview_state.change,workflow.change,generation_busy.change], fn=design_download_visibility, inputs=[preview_state,workflow,generation_busy], outputs=design_download, queue=False, show_progress='hidden', api_name=False)
+                design_download.click(save_designed_voice, inputs=[preview_state,workflow,preview_confirm,correction,use_correction], outputs=[design_file,design_save_status], api_name=False, concurrency_limit=1, trigger_mode='once').success(fn=None, js="() => { document.querySelector('#design-voice-file a[download]')?.click(); }", api_name=False)
                 # Busy UI adapters use variadic signatures and extra UI-only outputs.
                 # Keep the existing public API contracts attached to the original
                 # typed callbacks so named clients and return tuple arity stay valid.

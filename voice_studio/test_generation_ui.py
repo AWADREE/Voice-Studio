@@ -43,3 +43,29 @@ class VoicePickerLoadingTests(unittest.TestCase):
    result=app.generate_workflow_ui(None)
   self.assertEqual(len(result),17)
   self.assertIn('failure',result[2]['value'])
+
+class DesignVoiceDownloadTests(unittest.TestCase):
+ def test_visibility_requires_current_design_sample_and_not_busy(self):
+  design={'source':'design_sample'}
+  self.assertTrue(app.design_download_visibility(design,'design',False)['visible'])
+  self.assertFalse(app.design_download_visibility(design,'clone',False)['visible'])
+  self.assertFalse(app.design_download_visibility({'source':'clone_reference'},'design',False)['visible'])
+  self.assertFalse(app.design_download_visibility(None,'design',False)['visible'])
+  self.assertFalse(app.design_download_visibility(design,'design',True)['interactive'])
+ def test_download_passes_corrected_transcript_and_rejects_other_sources(self):
+  from unittest.mock import patch
+  preview={'source':'design_sample'}
+  with patch.object(app,'save_preview_corrected',return_value=('file','status')) as save:
+   self.assertEqual(app.save_designed_voice(preview,'design',False,'actual words',True),('file','status'))
+   save.assert_called_once_with(preview,False,'actual words',True)
+  with self.assertRaises(Exception): app.save_designed_voice({'source':'clone_reference'},'design',False,'',False)
+  with self.assertRaises(Exception): app.save_designed_voice(preview,'generate',False,'',False)
+ def test_save_button_is_gated_by_correction_and_design_button_is_inside_design(self):
+  config=app.build_ui().get_config_file()
+  elements={c['props'].get('elem_id'):c for c in config['components'] if c['props'].get('elem_id')}
+  self.assertIn('design-download-voice',elements)
+  self.assertFalse(elements['design-download-voice']['props']['visible'])
+  from pathlib import Path
+  css=(Path(app.ROOT)/'theme.css').read_text(encoding='utf-8-sig')
+  self.assertIn('#save-corrected-audition{display:none!important}',css)
+  self.assertIn('#listen-panel:has(#edit-transcript input:checked) #save-corrected-audition{display:flex!important}',css)
