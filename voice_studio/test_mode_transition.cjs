@@ -10,8 +10,8 @@ for(const narrow of [false,true])for(const reduced of [false,true]){
  const nav={dataset:{},addEventListener(t,f){listener=f},querySelectorAll(){return buttons}};
  const picker={};const cache=new WeakMap([[picker,{animation:{cancel(){pickerCancels++}},bodyAnimation:{cancel(){pickerCancels++}}}]]);
  const style=()=>{const values={};return {values,setProperty(k,v){values[k]=v},removeProperty(k){delete values[k]},get height(){return values.height},set height(v){values.height=v}}};
- const clone={id:'clone',style:style(),inert:false,value:'Preserved transcript',getBoundingClientRect(){return {width:viewportNarrow?958:438}},animate(frames,options){return animate(this.id,frames,options)}};
- const design={id:'design',style:style(),inert:false,value:'Gentle alto',getBoundingClientRect(){return {width:viewportNarrow?958:438}},animate(frames,options){return animate(this.id,frames,options)}};
+ const clone={id:'clone',style:style(),inert:false,value:'Preserved transcript',getBoundingClientRect(){return {width:viewportNarrow?958:438.328125}},animate(frames,options){return animate(this.id,frames,options)}};
+ const design={id:'design',style:style(),inert:false,value:'Gentle alto',getBoundingClientRect(){return {width:viewportNarrow?958:438.328125}},animate(frames,options){return animate(this.id,frames,options)}};
  const delivery={id:'delivery',style:style(),inert:false,value:'Preserved delivery',parentElement:{},getBoundingClientRect(){return {height:classes.has('design-mode')&&!this.style.values.display?0:95}},animate(frames,options){return animate(this.id,frames,options)}};
  const workspace={clientWidth:1000,classList:{contains:n=>classes.has(n),add:n=>classes.add(n),remove:n=>classes.delete(n),toggle(n,v){v?classes.add(n):classes.delete(n)}},style:style(),dispatchEvent(){}};
  const reference={style:style(),inert:false,getBoundingClientRect(){return {height:this.style.height&&this.style.height!=='auto'?parseFloat(this.style.height):classes.has('design-mode')?250:600}},animate(frames,options){return animate('panel',frames,options)},querySelectorAll(){return[picker]},setAttribute(k,v){this[k]=v}};
@@ -21,18 +21,19 @@ for(const narrow of [false,true])for(const reduced of [false,true]){
  vm.runInNewContext(handler,{document:{querySelector:s=>s==='#voice-mode-tabs'?nav:s==='#voice-mode-workspace'?workspace:s==='#reference-panel'?reference:s==='#clone-inputs'?clone:s==='#design-inputs'?design:s==='#base-delivery-instruction'?delivery:s.startsWith('#workflow-mode')?workflow:null},Event:class{},getComputedStyle:e=>({opacity:animations.length>=4&&e===clone?'0.6':animations.length>=4&&e===design?'0.4':'1',transform:animations.length>=4&&(e===clone||e===design)?'matrix(1, 0, 0, 1, 0, 5)':'none',paddingTop:'24px',paddingBottom:'24px',paddingLeft:e===reference&&classes.has('generate-mode')?'0px':viewportNarrow?'20px':'24px',paddingRight:e===reference&&classes.has('generate-mode')?'0px':viewportNarrow?'20px':'24px',borderLeftWidth:e===reference&&classes.has('generate-mode')?'0px':'1px',borderRightWidth:e===reference&&classes.has('generate-mode')?'0px':'1px',rowGap:'20px',marginBottom:animations.length>=4&&e===delivery?'-10px':'0px'}),matchMedia:q=>({matches:q.includes('800')?viewportNarrow:reduced}),pickerGeometry:cache,setTimeout(f,d){timer=f;delay=d;return 1},clearTimeout(){},requestAnimationFrame:f=>f(),animatePickerGeometry(){refreshed++}});
  const click=i=>listener({target:{closest:()=>buttons[i]}});
  click(1);
+ assert.equal(workspace.style.values['--reference-content-width'],narrow?'958px':'438.328125px','form transitions preserve fractional width rather than rounded grid estimates');
  assert(classes.has('design-mode'));assert(!reference.inert);assert.equal(workflow.value,'design');
  if(!reduced){
   assert.deepEqual(animations.map(a=>a.owner),['delivery','panel','clone','design']);
   assert.equal(animations[0].frames[0].height,'95px');assert.equal(animations[0].frames[1].height,'0px');assert.equal(animations[0].frames[1].marginBottom,'-20px');
   assert.equal(animations[1].frames[0].height,'600px');assert.equal(animations[1].frames[1].height,'250px');
   assert.equal(clone.style.values.display,'flex');assert.equal(clone.style.values.position,'absolute');assert(clone.inert);
-  assert.equal(clone.style.values.width,viewportNarrow?'958px':'438px','outgoing Clone fields keep their measured width');
+  assert.equal(clone.style.values.width,viewportNarrow?'958px':'438.328125px','outgoing Clone fields keep their measured width');
   assert.equal(animations[3].frames[0].opacity,0);
   click(0);assert(animations.slice(0,4).every(a=>a.cancelled),'rapid reversal cancels old motion');
   assert.deepEqual(animations.slice(4).map(a=>a.owner),['delivery','panel','design','clone']);
-  assert.equal(clone.style.values.width,undefined,'rapid reversal clears the old absolute width');
-  assert.equal(design.style.values.width,viewportNarrow?'958px':'438px');
+  assert.equal(clone.style.values.width,viewportNarrow?'958px':'438.328125px','incoming form keeps the same width during reversal');
+  assert.equal(design.style.values.width,viewportNarrow?'958px':'438.328125px');
   assert.equal(animations[4].frames[0].marginBottom,'-10px');
   assert.equal(animations[7].frames[0].opacity,0.6);assert.equal(animations[7].frames[0].transform,'matrix(1, 0, 0, 1, 0, 5)');
   animations[4].onfinish();animations[5].onfinish();assert.equal(reference.style.height,undefined);assert.equal(design.style.values.display,undefined);assert.equal(design.style.values.width,undefined);assert(!design.inert);

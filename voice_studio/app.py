@@ -233,7 +233,7 @@ def generate_design(text, description, language, seed, release_after, *settings)
         sf.write(path, wav, sr, subtype='PCM_24')
         authorize_generated_file(path)
         (OUTPUTS / (stamp + '.json')).write_text(json.dumps({'mode': 'voice_design', 'text': text, 'voice_description': description, 'language': language, 'seed': seed, 'generation_settings': options}, indent=2), encoding='utf-8')
-        return str(path), str(path), f'Design preview saved: {path}\nGenerated in {time.time()-start:.1f} seconds. Listen to judge the voice and spoken words.'
+        return str(path), str(path), f'Design audition saved as WAV: {path}\nGenerated in {time.time()-start:.1f} seconds. Listen before approving it. No .pt voice has been saved yet.'
     except Exception as exc:
         raise gr.Error(str(exc)) from exc
     finally:
@@ -246,8 +246,72 @@ def generate_design_preview(text, description, language, seed, release_after, *s
     import hashlib
     audio, download, status = generate_design(text, description, language, seed, release_after, *settings)
     transcript = text.strip()
-    state = {'audio': audio, 'sha256': hashlib.sha256(Path(audio).read_bytes()).hexdigest(), 'transcript': transcript}
+    state = {'audio': audio, 'sha256': hashlib.sha256(Path(audio).read_bytes()).hexdigest(), 'transcript': transcript, 'source': 'design_sample'}
     return audio, download, status, state, transcript, False
+
+
+def reference_audio_input(audio):
+    if not audio:
+        raise ValueError('Upload or record reference audio first.')
+    try:
+        waveform, sample_rate = sf.read(audio, dtype='float32', always_2d=False)
+        if waveform.ndim > 1:
+            waveform = waveform.mean(axis=1)
+        return np.asarray(waveform, dtype=np.float32), int(sample_rate)
+    except (OSError, RuntimeError, TypeError):
+        return audio  # Retain upstream decoding for other supported formats.
+
+
+def clone_audition(audio, transcript, include_transcript, text, instruction, language, seed, release_after, *settings):
+    """Audition an in-memory reference prompt. No reusable voice file is written."""
+    import hashlib
+    from dataclasses import asdict
+    if not LOCK.acquire(blocking=False):
+        raise gr.Error('Another operation is running. Wait for it to finish.')
+    try:
+        text = (text or '').strip()
+        transcript = (transcript or '').strip() if include_transcript else ''
+        if not 1 <= len(text) <= 2000:
+            raise ValueError('Enter audition text between 1 and 2000 characters.')
+        if include_transcript and not transcript:
+            raise ValueError('Enter the exact reference transcript, or turn off Include reference transcript.')
+        if language not in LANGUAGES:
+            raise ValueError('Choose a supported language.')
+        options = generation_options(settings)
+        seed = int(seed)
+        model = load_model('base')
+        item = model.create_voice_clone_prompt(ref_audio=reference_audio_input(audio),
+            ref_text=transcript or None, x_vector_only_mode=not include_transcript)[0]
+        if seed >= 0:
+            torch.manual_seed(seed)
+            torch.cuda.manual_seed_all(seed)
+        start = time.time()
+        wavs, sr = model.generate_voice_clone(text=text, language=language,
+            voice_clone_prompt=[item], **options, **instruction_kwargs(model, instruction))
+        wav = np.asarray(wavs[0])
+        if wav.size == 0 or not np.isfinite(wav).all():
+            raise RuntimeError('The model returned empty or invalid audio.')
+        OUTPUTS.mkdir(parents=True, exist_ok=True)
+        stamp = time.strftime('%Y%m%d-%H%M%S') + '-' + uuid.uuid4().hex[:6]
+        path = OUTPUTS / (stamp + '.wav')
+        sf.write(path, wav, sr, subtype='PCM_24')
+        authorize_generated_file(path)
+        (OUTPUTS / (stamp + '.json')).write_text(json.dumps({'mode':'clone_audition',
+            'text':text,'reference_transcript':transcript,'identity_only':not include_transcript,
+            'instruction':instruction,'language':language,'seed':seed,'generation_settings':options},indent=2),encoding='utf-8')
+        prompt = {key: value.detach().cpu() if torch.is_tensor(value) else value
+                  for key, value in asdict(item).items()}
+        state = {'audio':str(path),'sha256':hashlib.sha256(path.read_bytes()).hexdigest(),
+                 'transcript':transcript,'source':'clone_reference','prompt':prompt,
+                 'sample_text':text,'identity_only':not include_transcript}
+        note = 'The original reference voice will be saved only after you approve this audition. No .pt voice has been saved yet.'
+        return str(path),str(path),f'Clone audition: {path}\nGenerated in {time.time()-start:.1f} seconds. {note}',state,transcript,False
+    except Exception as exc:
+        raise gr.Error(str(exc)) from exc
+    finally:
+        if release_after:
+            release_model()
+        LOCK.release()
 
 
 def save_voice(audio, transcript, identity_only, release_after=True):
@@ -260,17 +324,7 @@ def save_voice(audio, transcript, identity_only, release_after=True):
         raise gr.Error('Another operation is running. Wait for it to finish.')
     model = None
     try:
-        # Gradio supplies local audio files. Decode formats supported by
-        # soundfile directly so the model's path loader need not run librosa's
-        # expensive Python fallback when Numba JIT is disabled locally.
-        reference_input = audio
-        try:
-            waveform, sample_rate = sf.read(audio, dtype='float32', always_2d=False)
-            if waveform.ndim > 1:
-                waveform = waveform.mean(axis=1)
-            reference_input = (np.asarray(waveform, dtype=np.float32), int(sample_rate))
-        except (OSError, RuntimeError, TypeError):
-            pass  # Retain upstream decoding for other supported audio formats.
+        reference_input = reference_audio_input(audio)
         model = load_model()
         items = model.create_voice_clone_prompt(ref_audio=reference_input, ref_text=(transcript or '').strip() or None, x_vector_only_mode=bool(identity_only))
         payload = {'items': [{k: v.detach().cpu() if torch.is_tensor(v) else v for k,v in asdict(item).items()} for item in items]}
@@ -291,18 +345,8 @@ def save_voice(audio, transcript, identity_only, release_after=True):
 
 
 def clone_generate(audio, transcript, identity_only, text, instruction, language, seed, release_after, *settings):
-    if not (text or '').strip() or len(text.strip()) > 2000:
-        raise gr.Error('Enter commentary between 1 and 2000 characters.')
-    generation_options(settings)
-    if not LOCK.acquire(blocking=False):
-        raise gr.Error('Another operation is running. Wait for it to finish.')
-    try:
-        path, _ = save_voice(audio, transcript, identity_only, release_after=False)
-        return generate(path, text, instruction, language, seed, release_after, identity_only, *settings)
-    finally:
-        if release_after:
-            release_model()
-        LOCK.release()
+    return clone_audition(audio, transcript, not identity_only, text, instruction,
+                          language, seed, release_after, *settings)[:3]
 
 
 SETTING_NAMES = ['max_new_tokens','temperature','top_k','top_p','repetition_penalty','do_sample','subtalker_temperature','subtalker_top_k','subtalker_top_p','subtalker_dosample']
@@ -319,37 +363,18 @@ def generate_preview(voice_path, text, instruction, language, seed, release_afte
 
 
 def clone_generate_preview(audio, transcript, identity_only, text, instruction, language, seed, release_after, *settings):
-    import hashlib
-    wav, download, status = clone_generate(audio, transcript, identity_only, text, instruction, language, seed, release_after, *settings)
-    frozen_text = text.strip()
-    state = {'audio': wav, 'sha256': hashlib.sha256(Path(wav).read_bytes()).hexdigest(), 'transcript': frozen_text}
-    return wav, download, status, state, frozen_text, False
+    return clone_audition(audio, transcript, not identity_only, text, instruction,
+                          language, seed, release_after, *settings)
 
 
 def clone_reference_and_save(audio, transcript, include_transcript, text, instruction, language, seed, release_after, *settings):
-    """Encode reference once, save it, and synthesize using that same saved prompt."""
-    import hashlib
-    path = None
-    if not LOCK.acquire(blocking=False):
-        raise gr.Error('Another operation is running. Wait for it to finish.')
+    """Legacy callback shape; audition only, with no automatic .pt save."""
     try:
-        if not (text or '').strip() or len(text.strip()) > 2000:
-            raise ValueError('Enter commentary between 1 and 2000 characters.')
-        generation_options(settings)
-        path, _ = save_voice(audio, transcript if include_transcript else '', not include_transcript, release_after=False)
-        wav, download, status = generate(path, text, instruction, language, seed, False, not include_transcript, *settings)
-        frozen = text.strip()
-        state = {'audio': wav, 'sha256': hashlib.sha256(Path(wav).read_bytes()).hexdigest(), 'transcript': frozen}
-        return wav, download, status, state, frozen, False, gr.update(value=path,visible=True), gr.update(value='Original-reference voice saved. The sample uses this exact voice file.',visible=True)
+        result = clone_audition(audio, transcript, include_transcript, text, instruction,
+                                language, seed, release_after, *settings)
+        return (*result, gr.update(value=None,visible=False), gr.update(value='',visible=False))
     except Exception as exc:
-        message = f'Commentary was not generated: {exc}'
-        if path:
-            message += '\nThe original-reference voice was saved successfully and is available below its clone button.'
-        return None, None, message, None, '', False, gr.update(value=path,visible=bool(path)), gr.update(value=('Voice saved; commentary failed. Load this .pt to retry without encoding again.' if path else ''),visible=bool(path))
-    finally:
-        if release_after:
-            release_model()
-        LOCK.release()
+        return None, None, f'Audition failed: {exc}', None, '', False, gr.update(value=None,visible=False), gr.update(value='',visible=False)
 
 
 def save_preview_voice(preview, confirmed):
@@ -361,9 +386,34 @@ def save_preview_voice(preview, confirmed):
         raise gr.Error('The preview audio is unavailable. Generate another preview.')
     if hashlib.sha256(audio.read_bytes()).hexdigest() != preview['sha256']:
         raise gr.Error('The preview audio changed. Generate another preview before saving a voice.')
+    if preview.get('source') == 'clone_reference':
+        prompt = preview.get('prompt')
+        if not isinstance(prompt, dict) or not torch.is_tensor(prompt.get('ref_spk_embedding')):
+            raise gr.Error('The reference prompt is unavailable. Create another audition.')
+        identity_only = bool(preview.get('identity_only'))
+        transcript = (preview.get('transcript') or '').strip()
+        if not identity_only and not transcript:
+            raise gr.Error('Confirm or correct the exact words in the original reference audio.')
+        item = dict(prompt, ref_text=None if identity_only else transcript)
+        if not LOCK.acquire(blocking=False):
+            raise gr.Error('Another operation is running. Wait for it to finish.')
+        path = None
+        try:
+            VOICES.mkdir(parents=True, exist_ok=True)
+            path = VOICES / (time.strftime('%Y%m%d-%H%M%S')+'-'+uuid.uuid4().hex[:6]+'.pt')
+            torch.save({'items':[item]}, path)
+            read_voice(path)
+            authorize_generated_file(path)
+            return str(path), 'Original reference voice saved after audition approval. This .pt uses the original reference audio, not the generated audition WAV.'
+        except Exception as exc:
+            if path and path.is_file():
+                path.unlink()
+            raise gr.Error(str(exc)) from exc
+        finally:
+            LOCK.release()
     # Reference-audio/ICL mode deliberately retains delivery context, unlike identity-only.
     path, _ = save_voice(str(audio), preview['transcript'], False)
-    return path, 'New reference voice saved from this preview. Reuse this .pt in the saved-voice input; delivery can vary on new text.'
+    return path, 'Voice saved from the generated audition sample. Reuse this .pt in Generate; delivery can vary on new text.'
 
 
 def generation_options(settings):
@@ -410,7 +460,7 @@ def compose_controls(batch=False, clone_button=None, clone_busy=None):
         else:
             single_tab.select(lambda: 'single', outputs=mode, queue=False, api_name=False)
             batch_tab.select(lambda: 'batch', outputs=mode, queue=False, api_name=False)
-    button = gr.Button('Generate commentary', variant='primary', elem_classes=['primary-action'], elem_id='generate-commentary' if batch else None,interactive=not batch,preserved_by_key=['value','interactive'])
+    button = gr.Button('Generate', variant='primary', elem_classes=['primary-action'], elem_id='generate-commentary' if batch else None,interactive=not batch,preserved_by_key=['value','interactive'])
     return (text, instruction, language, seed, release, identity, button, settings, mode, entries) if batch else (text, instruction, language, seed, release, identity, button, settings)
 
 
@@ -484,7 +534,15 @@ def _atomic_preview_controls(result):
     # Reset all preview controls in the SAME response as the new waveform.
     # A second state.change request could otherwise hide the first user toggle.
     controls = preview_action_visibility(result[3])
-    return (*result, controls[0], gr.update(value=(result[3] or {}).get('transcript',''), visible=True), controls[3], controls[4], controls[5])
+    preview = result[3] or {}
+    reference = preview.get('source') == 'clone_reference'
+    confirm_label = ('I listened to the audition and checked the original reference transcript'
+                     if reference and not preview.get('identity_only') else
+                     'I listened to and approve this audition sample')
+    correction_label = 'Actual words in original reference audio' if reference else 'Actual words in audition sample'
+    return (*result[:5], gr.update(value=False, label=confirm_label), controls[0],
+            gr.update(value=preview.get('transcript',''), label=correction_label, visible=not (reference and preview.get('identity_only'))),
+            controls[3], controls[4], gr.update(value=False, visible=not (reference and preview.get('identity_only'))))
 
 
 def generate_preview_atomic(*args):
@@ -625,7 +683,7 @@ def generate_commentary_ui(*args, progress=gr.Progress()):
 def generate_workflow_mode(workflow, mode, rows, token, ref_audio, ref_transcript, include_transcript,
                            description, voice, text, instruction, language, seed, release, identity,
                            *settings, request: gr.Request = None, progress=gr.Progress()):
-    """One composer and output surface for all three voice workflows."""
+    """Audition once in Clone/Design; use saved voices for Generate singles/batches."""
     if workflow not in ('clone', 'design', 'generate'):
         raise ValueError('Choose Clone, Design, or Generate.')
     if mode not in ('single', 'batch'):
@@ -634,62 +692,18 @@ def generate_workflow_mode(workflow, mode, rows, token, ref_audio, ref_transcrip
         return (*generate_commentary_mode(mode, rows, voice, text, instruction, language,
                                           seed, release, identity, *settings, progress=progress),
                 gr.skip(), gr.skip(), gr.skip(), gr.skip())
-    generation_options(settings)
+    # An existing timed draft may remain selected briefly while the UI changes
+    # tabs. Audition modes always use the shared single-text component.
     if workflow == 'design':
-        if not (description or '').strip():
-            raise ValueError('Describe the voice you want to design.')
-        if language not in LANGUAGES:
-            raise ValueError('Choose a supported language.')
-        if mode == 'single':
-            result = design_submission(text, description, language, seed, release, *settings)
-            return (*result, None, gr.update(visible=False), '', gr.update(value=None, visible=False),
-                    gr.skip(), gr.skip(), gr.skip(), gr.skip())
+        result = _atomic_preview_controls(generate_design_preview(text, description, language,
+                                                                  seed, release, *settings))
     else:
-        if not ref_audio:
-            raise ValueError('Upload or record reference audio first.')
-        if include_transcript and not (ref_transcript or '').strip():
-            raise ValueError('Enter the exact reference transcript, or turn off Include reference transcript.')
-        if mode == 'single':
-            result = clone_reference_selected(token, ref_audio, ref_transcript, include_transcript,
-                                              text, instruction, language, seed, release, request, *settings)
-            return (gr.update(value=result[0], visible=bool(result[0])),
-                    gr.update(value=result[1], visible=bool(result[1])), result[2], *result[3:6],
-                    *result[8:13], None, gr.update(visible=False), '',
-                    gr.update(value=None, visible=False), result[6], result[7], result[13], result[14])
-    from batch_generation import run_batch, validate_entries
-    validate_entries(rows)
-    saved_update = saved_status = selected_update = selected_info = gr.skip()
-    if workflow == 'clone':
-        try:
-            path, message = save_voice(ref_audio, ref_transcript if include_transcript else '',
-                                       not include_transcript, release_after=False)
-            saved_update, saved_status = gr.update(value=path, visible=True), gr.update(value=message, visible=True)
-            from gradio.processing_utils import save_file_to_cache
-            from gradio.utils import get_upload_folder
-            selected = save_file_to_cache(path, cache_dir=get_upload_folder())
-            if SELECTION.commit(voice_session(request), token, selected):
-                selected_update = gr.update(value=selected)
-                selected_info = 'Active voice: ' + Path(path).name + '\nNewly cloned reference selected for future commentary.'
-        except Exception:
-            if release:
-                release_model()
-            raise
-    result = run_batch(rows,
-        generate_clip=(lambda paragraph, index: generate_design(paragraph, description, language, seed,
-                          False, *settings)[0]) if workflow == 'design' else
-                      (lambda paragraph, index: generate(path, paragraph, instruction, language, seed,
-                          False, not include_transcript, *settings)[0]),
-        output_root=OUTPUTS, lock=LOCK, release_after=release, release_model=release_model,
-        on_progress=lambda index, total, label: progress((index, total), desc=f'Generating clip {index+1}/{total} ({label})'))
-    for clip in result['clips']:
-        authorize_generated_file(Path(clip['audio']))
-    if result['archive']:
-        authorize_generated_file(Path(result['archive']))
-    return (gr.update(value=None, visible=False), gr.update(value=None, visible=False), '', None, '', False,
-            gr.update(visible=False), gr.update(value=''), gr.update(value=None, visible=False),
-            gr.update(value='', visible=False), False, result, gr.update(visible=True), result['status'],
-            gr.update(value=result['archive'], visible=bool(result['archive'])),
-            saved_update, saved_status, selected_update, selected_info)
+        result = _atomic_preview_controls(clone_audition(ref_audio, ref_transcript, include_transcript,
+            text, instruction, language, seed, release, *settings))
+    return (gr.update(value=result[0], visible=bool(result[0])),
+            gr.update(value=result[1], visible=bool(result[1])), *result[2:],
+            None, gr.update(visible=False), '', gr.update(value=None, visible=False),
+            gr.skip(), gr.skip(), gr.skip(), gr.skip())
 
 
 def generate_workflow_ui(request: gr.Request, *args, progress=gr.Progress()):
@@ -713,10 +727,10 @@ def workflow_ready(workflow, mode, rows, voice, ref_audio, ref_transcript, inclu
         return False
     try:
         generation_options(settings)
-        if mode == 'batch':
+        if workflow == 'generate' and mode == 'batch':
             from batch_generation import validate_entries
             validate_entries(rows)
-        elif mode != 'single' or not isinstance(text, str) or not 1 <= len(text.strip()) <= 2000:
+        elif (workflow == 'generate' and mode != 'single') or not isinstance(text, str) or not 1 <= len(text.strip()) <= 2000:
             return False
         return True
     except (TypeError, ValueError, OverflowError):
@@ -729,14 +743,14 @@ def update_workflow_readiness(*args):
 
 def workflow_started(workflow, request: gr.Request):
     ticket = begin_clone_selection(request) if workflow == 'clone' else 0
-    return gr.update(interactive=False, value='Generating commentary...'), gr.update(value='', visible=False), True, ticket
+    return gr.update(interactive=False, value='Generating...'), gr.update(value='', visible=False), True, ticket
 
 
 def workflow_completed(workflow, mode, rows, voice, ref_audio, ref_transcript, include_transcript,
                        description, text, *settings):
     return (gr.update(interactive=workflow_ready(workflow, mode, rows, voice, ref_audio, ref_transcript,
                                                  include_transcript, description, text, False, *settings),
-                      value='Generate commentary'), gr.update(value='', visible=False), False)
+                      value='Generate'), gr.update(value='', visible=False), False)
 
 
 def commentary_ready(mode, rows, voice, text, busy=False, cloning=False, *settings):
@@ -815,7 +829,7 @@ def clone_submission(args, request):
 def build_ui():
     with gr.Blocks(title='Voice Studio | Night Exchange') as app:
         with gr.Row(elem_id='studio-heading-row'):
-            gr.HTML('<header class="studio-head"><div><h1>Voice Studio</h1><p>Clone a voice, save it, and shape your commentary.</p></div></header>', elem_id='studio-header')
+            gr.HTML('<header class="studio-head"><div><h1>Voice Studio</h1><p>Audition a voice, save the one you approve, and shape your commentary.</p></div></header>', elem_id='studio-header')
             gr.HTML('<nav class="mode-tabs" aria-label="Voice workflow"><button type="button" data-voice-mode="clone" aria-pressed="true">Clone</button><button type="button" data-voice-mode="design" aria-pressed="false">Design</button><button type="button" data-voice-mode="generate" aria-pressed="false">Generate</button></nav>', elem_id='voice-mode-tabs')
         with gr.Tabs(elem_id='workflow-tabs', selected='saved-voice'):
             with gr.Tab('Clone & Generate', id='direct-clone', visible=False):
@@ -838,10 +852,9 @@ def build_ui():
                         with gr.Column(scale=1, min_width=340, elem_classes=['studio-panel'], elem_id='reference-panel'):
                             with gr.Column(elem_id='clone-inputs'):
                                 gr.Markdown('## Clone a reference voice')
-                                gr.Markdown('Turn reference audio into a reusable voice file.', elem_classes=['section-note'])
+                                gr.Markdown('Audition a reference voice. Save its reusable .pt only after listening.', elem_classes=['section-note'])
                                 ref_s, transcript_s, xvec_s = reference_controls()
                                 save = gr.Button('Save voice file', visible=False)
-                                gr.Markdown('Save a voice and preview your commentary in one step.', elem_classes=['section-note'])
                                 direct_preview = gr.Button('Clone reference & generate commentary', elem_classes=['primary-action'], elem_id='clone-reference-commentary', interactive=False, visible=False)
                                 ref_s.change(fn=None, inputs=ref_s, js="(audio) => { window.voiceStudioReferenceReady = !!audio; document.getElementById('production-workspace')?.dispatchEvent(new Event('input',{bubbles:true})); }", api_name=False)
                                 saved = gr.File(label='Saved voice file (.pt)', interactive=False, height=85, visible=False)
@@ -852,7 +865,7 @@ def build_ui():
                                 design_description = gr.Textbox(label='Voice design instruction', lines=3, value='', placeholder='Speak in an incredulous tone, but with a hint of panic beginning to creep into your voice.')
                         with gr.Column(scale=1, min_width=340, elem_classes=['studio-panel']):
                             gr.Markdown('## Generate')
-                            gr.Markdown('Write one commentary or create timestamped clips with the selected workflow.', elem_classes=['section-note'])
+                            gr.Markdown('Write an audition in Clone or Design. Generate supports single commentary and timestamped clips.', elem_classes=['section-note'])
                             with gr.Column(elem_id='saved-voice-inputs'):
                                 gr.Markdown('Use an existing .pt voice to create commentary.', elem_classes=['section-note'])
                                 voice = gr.File(label='Voice file (.pt)', file_types=['.pt'], type='filepath', height=130, elem_classes=['studio-voice-input'])
@@ -880,10 +893,10 @@ def build_ui():
                                         player.stop(fn=None,js='() => window.voiceStudioBatchPlayback?.finished('+str(clip['index']-1)+')',api_name=False,key='ended-'+clip['audio'])
                                         gr.DownloadButton('Download '+clip['label'], value=clip['audio'])
                         with gr.Column(visible=False, elem_classes=['studio-presence']) as preview_actions:
-                            preview_confirm = gr.Checkbox(label='I listened and checked the spoken words', value=False)
-                            use_correction = gr.Checkbox(label='Edit transcript for this voice', value=False, interactive=True, elem_id='edit-transcript')
-                            correction = gr.Textbox(label='Actual spoken words', lines=3, visible=True, interactive=True, elem_id='correction-editor')
-                            save_preview = gr.Button('Save as new voice .pt', elem_classes=['primary-action'])
+                            preview_confirm = gr.Checkbox(label='I listened to and approve this audition sample', value=False)
+                            use_correction = gr.Checkbox(label='Correct transcript before saving', value=False, interactive=True, elem_id='edit-transcript')
+                            correction = gr.Textbox(label='Actual words in audition sample', lines=3, visible=True, interactive=True, elem_id='correction-editor')
+                            save_preview = gr.Button('Save audition as voice .pt', elem_classes=['primary-action'])
                             preview_file = gr.File(label='New preview voice (.pt)', interactive=False, visible=False, elem_classes=['studio-presence'])
                             preview_status = gr.Markdown(value='', visible=False, elem_classes=['studio-output-status'], sanitize_html=True)
                 preview_state = gr.State(None)
@@ -916,7 +929,7 @@ def build_ui():
                     'Clone reference & generate commentary','Cloning & generating...',2,
                     begin=begin_clone_selection,token=clone_ticket,adapter=clone_submission,finish_mode=commentary_mode,busy_state=clone_busy)
                 commentary_mode.change(lambda mode,busy:gr.skip() if busy else gr.update(interactive=mode=='single',value=('Clone reference & generate commentary' if mode=='single' else 'Switch to Single commentary to clone')),[commentary_mode,clone_busy],direct_preview,api_name=False,queue=False)
-                bind_busy_action(save_preview,save_preview_corrected,[preview_state,preview_confirm,correction,use_correction],[preview_file,preview_status],'Save as new voice .pt','Saving new voice...',1)
+                bind_busy_action(save_preview,save_preview_corrected,[preview_state,preview_confirm,correction,use_correction],[preview_file,preview_status],'Save audition as voice .pt','Saving voice...',1)
                 # Busy UI adapters use variadic signatures and extra UI-only outputs.
                 # Keep the existing public API contracts attached to the original
                 # typed callbacks so named clients and return tuple arity stay valid.

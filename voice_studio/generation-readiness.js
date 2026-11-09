@@ -7,12 +7,12 @@
   const voice=document.querySelector('.studio-voice-input .filename[aria-label]');
   const tabs=document.getElementById('commentary-mode-tabs');
   const batch=tabs?.querySelector('[role="tab"][aria-selected="true"]')?.textContent.includes('Timestamped');
-  const busy=/Generating commentary/.test(button.textContent);
+  const busy=/Generating/.test(button.textContent);
   let contentValid=true;
   const workspace=document.getElementById('voice-mode-workspace');
   const mode=workspace?.classList.contains('generate-mode')?'generate':workspace?.classList.contains('design-mode')?'design':'clone';
   let valid=!busy;
-  if(batch){
+  if(batch&&mode==='generate'){
    const rows=[...tabs.querySelectorAll('.clip-list .clip-row:not([data-removing])')];
    contentValid=rows.length>0&&rows.length<=100&&rows.every(row=>{
     const minutes=row.querySelector('[data-field="minutes"]').value,seconds=row.querySelector('[data-field="seconds"]').value;

@@ -249,6 +249,7 @@
     if (modeNav && workspace && reference && !modeNav.dataset.bound) {
         modeNav.dataset.bound = 'true';
         let modeTimer;
+        let stopComposerRestore;
         let formMotion;
         const delivery=document.querySelector('#base-delivery-instruction');
         let deliveryMotion;
@@ -275,6 +276,7 @@
             motion.from.style.removeProperty('left');
             motion.from.style.removeProperty('width');
             motion.from.inert=false;
+            motion.to.style.removeProperty('width');
             reference.style.removeProperty('height');
         };
         modeNav.addEventListener('click', event => {
@@ -285,6 +287,13 @@
             if(generate === workspace.classList.contains('generate-mode') && design === workspace.classList.contains('design-mode'))return;
             const priorMode=workspace.classList.contains('generate-mode')?'generate':workspace.classList.contains('design-mode')?'design':'clone';
             const nextMode=button.dataset.voiceMode;
+            stopComposerRestore?.();
+            const commentaryTabs=document.querySelector('#commentary-mode-tabs');
+            const commentaryTab=(name)=>[...(commentaryTabs?.querySelectorAll('[role="tab"]')||[])].find(tab=>tab.textContent.trim()===name);
+            if(priorMode==='generate' && nextMode!=='generate'){
+                modeNav.dataset.resumeBatch=String(commentaryTab('Timestamped clips')?.getAttribute('aria-selected')==='true');
+                commentaryTab('Single commentary')?.click();
+            }
             const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
             const switchForms=priorMode!=='generate' && nextMode!=='generate';
             const from=priorMode==='design'?document.querySelector('#design-inputs'):document.querySelector('#clone-inputs');
@@ -309,7 +318,10 @@
             // and the picker animator preserves that temporary extra row.
             const narrow = matchMedia('(max-width:800px)').matches;
             const panelWidth = narrow ? workspace.clientWidth : (workspace.clientWidth - 24) / 2;
-            workspace.style.setProperty('--reference-content-width', Math.max(0, panelWidth - panelInset()) + 'px');
+            // clientWidth rounds fractional CSS pixels. During Clone <-> Design,
+            // reuse the measured form width rather than imposing that rounded
+            // minimum on both forms (which caused a subpixel widen/shrink).
+            workspace.style.setProperty('--reference-content-width', (switchForms ? fromWidth : Math.max(0, panelWidth - panelInset())) + 'px');
             workspace.classList.add('mode-transitioning');
             if(deliveryChanges && !reduced && design){
                 delivery.style.setProperty('display','block','important');
@@ -317,6 +329,9 @@
             }
             if(switchForms && !reduced){
                 reference.style.height=startHeight+'px';
+                // Hold both complete forms at the same border-box width, so
+                // their audio, transcript, and instruction outer edges stay fixed.
+                to.style.setProperty('width',fromWidth+'px','important');
                 from.style.setProperty('display','flex','important');
                 from.style.setProperty('position','absolute');
                 from.style.setProperty('top',getComputedStyle(reference).paddingTop);
@@ -360,12 +375,29 @@
                     from.animate([{opacity:fromOpacity,transform:fromTransform},{opacity:0,transform:'translateY(-10px)'}],{...timing,duration:160,fill:'forwards'}),
                     to.animate([{opacity:toOpacity===1?0:toOpacity,transform:toOpacity===1?'translateY(10px)':toTransform},{opacity:1,transform:'translateY(0)'}],timing)
                 ];
-                const motion={from,animations};formMotion=motion;
+                const motion={from,to,animations};formMotion=motion;
                 animations[0].onfinish=()=>{if(formMotion===motion)stopFormMotion();};
             }
             reference.inert = generate;
             reference.setAttribute('aria-hidden', String(generate));
             modeNav.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b === button)));
+            if(nextMode==='generate' && modeNav.dataset.resumeBatch==='true'){
+                // Gradio temporarily removes overflowed tab buttons while the
+                // composer expands. Restore when the real button reappears,
+                // not in a single animation frame that can race that layout.
+                let observer, timeout;
+                const stop=()=>{observer?.disconnect();clearTimeout(timeout);stopComposerRestore=null;};
+                const restore=()=>{
+                    const target=commentaryTab('Timestamped clips');
+                    if(!workspace.classList.contains('generate-mode')){stop();return;}
+                    if(target){stop();target.click();}
+                };
+                observer=new MutationObserver(restore);
+                observer.observe(commentaryTabs,{subtree:true,childList:true});
+                stopComposerRestore=stop;
+                timeout=setTimeout(stop,1500);
+                requestAnimationFrame(restore);
+            }
             const workflowField=document.querySelector('#workflow-mode input, #workflow-mode textarea');
             if(workflowField && 'value' in workflowField){
                 workflowField.value=button.dataset.voiceMode;

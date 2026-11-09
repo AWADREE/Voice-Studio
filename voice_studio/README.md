@@ -41,3 +41,7 @@ node test_mode_transition.cjs
 node test_art_drift.cjs
 ```
 Tests use a synthetic speaker embedding and codec tokens, not a person's voice. Most inference tests use a mocked model. Real inference and browser interactions must additionally be checked before changing the live installation. See VERIFICATION.md and UPDATING.md.
+
+## Sample-first Clone and Design
+
+Clone and Design generate one audition from the shared Commentary text and generation settings. Neither automatically saves a .pt. Listen, confirm (and correct the reference/sample transcript if needed), then use Save audition as voice .pt. Clone preserves the original reference prompt; Design encodes its generated sample using Base. Load that .pt in Generate for single commentary or Timestamped clips. Timed drafts remain intact while visiting Clone/Design.

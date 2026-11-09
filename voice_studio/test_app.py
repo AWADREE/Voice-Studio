@@ -62,9 +62,9 @@ class WorkflowTests(unittest.TestCase):
             self.assertTrue(Path(path).exists())
             self.assertEqual(app.read_voice(path).ref_spk_embedding.shape,item.ref_spk_embedding.shape)
     def test_direct_clone_routes_instructions(self):
-        with patch.object(app,'save_voice',return_value=('voice.pt','ok')), patch.object(app,'generate',return_value=('a','a','ok')) as generate, patch.object(app,'release_model'):
-            app.clone_generate('ref.wav','reference',False,'Hello','Calm','English',42,True)
-            generate.assert_called_once_with('voice.pt','Hello','Calm','English',42,True,False)
+        with patch.object(app,'clone_audition',return_value=('a','a','ok',{},'reference',False)) as audition:
+            self.assertEqual(app.clone_generate('ref.wav','reference',False,'Hello','Calm','English',42,True),('a','a','ok'))
+            audition.assert_called_once_with('ref.wav','reference',True,'Hello','Calm','English',42,True)
 
 class SettingsTests(unittest.TestCase):
     def test_defaults_match_model(self):
@@ -90,15 +90,17 @@ class AuditRegressionTests(unittest.TestCase):
     def test_compound_lock_blocks_other_thread(self):
         import threading
         attempts=[]
-        def save(*a,**kw):
+        def load(*a,**kw):
             def other():
                 got=app.LOCK.acquire(blocking=False);attempts.append(got)
                 if got:app.LOCK.release()
             t=threading.Thread(target=other);t.start();t.join()
-            return 'voice.pt','ok'
-        with patch.object(app,'save_voice',side_effect=save),patch.object(app,'generate',return_value=('a','a','ok')),patch.object(app,'release_model'):
-            app.clone_generate('ref.wav','ref',False,'text','','English',42,True)
+            raise RuntimeError('stop before inference')
+        with patch.object(app,'load_model',side_effect=load),patch.object(app,'release_model'):
+            with self.assertRaisesRegex(Exception,'stop before inference'):
+                app.clone_generate('ref.wav','ref',False,'text','','English',42,True)
         self.assertEqual(attempts,[False])
+
     def test_invalid_settings_before_reference_work(self):
         values=list(app.SETTING_DEFAULTS);values[3]=2
         with patch.object(app,'save_voice') as save:
@@ -181,14 +183,11 @@ class ConsolidatedUITests(unittest.TestCase):
         self.assertEqual(components[direct['inputs'][4]]['props']['label'],'Commentary text')
         self.assertTrue(any(d.get('api_name')=='clone_generate' for d in cfg['dependencies']))
     def test_direct_preview_freezes_transcript(self):
-        import tempfile
-        with tempfile.TemporaryDirectory() as tmp:
-            wav=Path(tmp)/'preview.wav';wav.write_bytes(b'preview')
-            with patch.object(app,'clone_generate',return_value=(str(wav),str(wav),'ok')) as generate:
-                result=app.clone_generate_preview('ref.wav','Ref',True,' Test. ','Calm','English',42,True)
-                self.assertEqual(result[3]['transcript'],'Test.')
-                self.assertFalse(result[-1])
-                generate.assert_called_once_with('ref.wav','Ref',True,' Test. ','Calm','English',42,True)
+        frozen=('a.wav','a.wav','ok',{'transcript':'Reference words','source':'clone_reference'},'Reference words',False)
+        with patch.object(app,'clone_audition',return_value=frozen) as audition:
+            result=app.clone_generate_preview('ref.wav','Reference words',False,'Test.','Calm','English',42,True)
+            self.assertEqual(result,frozen)
+            audition.assert_called_once_with('ref.wav','Reference words',True,'Test.','Calm','English',42,True)
 
 class TranscriptToggleTests(unittest.TestCase):
     def test_save_semantics(self):
@@ -230,23 +229,20 @@ class OutputVisibilityTests(unittest.TestCase):
 
 class CombinedCloneTests(unittest.TestCase):
     def test_one_encoding_same_prompt_and_download(self):
-        import tempfile
-        with tempfile.TemporaryDirectory() as tmp:
-            wav=Path(tmp)/'a.wav';wav.write_bytes(b'audio')
-            with patch.object(app,'save_voice',return_value=('new.pt','ok')) as save,patch.object(app,'generate',return_value=(str(wav),str(wav),'ok')) as gen,patch.object(app,'release_model'):
-                out=app.clone_reference_and_save('ref.wav','Ref',True,'Script','Calm','English',42,True)
-                save.assert_called_once_with('ref.wav','Ref',False,release_after=False)
-                gen.assert_called_once_with('new.pt','Script','Calm','English',42,False,False)
-                self.assertEqual(out[6]['value'],'new.pt');self.assertTrue(out[6]['visible'])
-                self.assertEqual(out[3]['transcript'],'Script')
+        state={'transcript':'Ref','source':'clone_reference'}
+        with patch.object(app,'clone_audition',return_value=('a.wav','a.wav','ok',state,'Ref',False)) as audition,patch.object(app,'save_voice') as save:
+            out=app.clone_reference_and_save('ref.wav','Ref',True,'Script','Calm','English',42,True)
+        audition.assert_called_once_with('ref.wav','Ref',True,'Script','Calm','English',42,True)
+        save.assert_not_called()
+        self.assertIsNone(out[6]['value']);self.assertFalse(out[6]['visible'])
+        self.assertEqual(out[3],state)
+
     def test_partial_failure_keeps_new_voice_not_stale_preview(self):
-        with patch.object(app,'save_voice',return_value=('new.pt','ok')),patch.object(app,'generate',side_effect=RuntimeError('failure')),patch.object(app,'release_model'):
+        with patch.object(app,'clone_audition',side_effect=RuntimeError('failure')),patch.object(app,'save_voice') as save:
             out=app.clone_reference_and_save('ref.wav','',False,'Script','','English',42,True)
-            self.assertIsNone(out[0]);self.assertIsNone(out[3]);self.assertFalse(out[5]);self.assertEqual(out[6]['value'],'new.pt')
-            self.assertIn('saved successfully',out[2])
-        with patch.object(app,'save_voice') as save,patch.object(app,'release_model'):
-            out=app.clone_reference_and_save(None,'',True,'','','English',42,True)
-            save.assert_not_called();self.assertFalse(out[6]['visible']);self.assertIsNone(out[3])
+        save.assert_not_called()
+        self.assertIsNone(out[0]);self.assertIsNone(out[3]);self.assertFalse(out[5]);self.assertIsNone(out[6]['value'])
+        self.assertFalse(out[6]['visible']);self.assertIn('Audition failed',out[2])
 
 class CompactPreviewTests(unittest.TestCase):
     def test_visibility_and_reset(self):
@@ -298,7 +294,7 @@ class FirstInteractionRegression(unittest.TestCase):
         self.assertTrue(out[6]['visible'])
         self.assertEqual(out[7]['value'],'Frozen')
         self.assertTrue(out[7]['visible'])
-        self.assertFalse(out[-1])
+        self.assertFalse(out[-1]['value'])
     def test_no_delayed_preview_state_visibility_callback(self):
         cfg=app.build_ui().get_config_file()
         cs={c['id']:c for c in cfg['components']}
