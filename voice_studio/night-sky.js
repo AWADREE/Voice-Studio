@@ -43,7 +43,9 @@
       if(el.matches('.studio-output-status') || el.parentElement.closest('.studio-output-status') || referenceLayoutBusy(el))return;
       const prior=presenceState.get(el);
       if(prior?.animating)return;
-      const visible=getComputedStyle(el).display!=='none'&&el.getBoundingClientRect().height>0;
+      // A hidden workflow can give a still-enabled field zero geometry. Only
+      // the component's own display state represents its visibility toggle.
+      const visible=getComputedStyle(el).display!=='none';
       const height=el.getBoundingClientRect().height;
       const state={visible,height,exiting:false};presenceState.set(el,state);
       if(!prior||prior.visible===visible||matchMedia('(prefers-reduced-motion: reduce)').matches)return;

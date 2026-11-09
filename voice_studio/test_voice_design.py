@@ -33,7 +33,8 @@ class VoiceDesignTests(unittest.TestCase):
         language = components[design['inputs'][labels.index('Language')]]['props']
         self.assertIn('Commentary text', labels)
         self.assertNotIn('Preview text', labels)
-        self.assertEqual(instruction['value'], ref_instruction['props']['value'])
+        self.assertEqual(instruction['value'], '')
+        self.assertEqual(instruction['placeholder'], ref_instruction['props']['value'])
         self.assertEqual(language['value'], 'English')
         self.assertEqual({choice[1] for choice in language['choices']}, {choice[1] for choice in ref_language['props']['choices']})
         self.assertEqual({action.dest for action in build_parser()._actions if action.dest in app.SETTING_NAMES},
@@ -150,7 +151,8 @@ class VoiceDesignTests(unittest.TestCase):
         self.assertEqual(sum(label == 'Voice design instruction' for label in labels), 1)
         self.assertEqual(sum(label == 'Commentary text' for label in labels), 1)
         self.assertEqual(sum(label == 'Maximum new tokens' for label in labels), 1)
-        self.assertIn('incredulous tone', components[design['inputs'][7]]['props']['value'])
+        self.assertEqual(components[design['inputs'][7]]['props']['value'], '')
+        self.assertIn('incredulous tone', components[design['inputs'][7]]['props']['placeholder'])
         self.assertEqual({choice[1] for choice in components[design['inputs'][11]]['props']['choices']}, set(app.LANGUAGES))
 
     def test_shared_workflow_readiness(self):
@@ -167,6 +169,14 @@ class VoiceDesignTests(unittest.TestCase):
         self.assertFalse(ready('clone', ref='reference.wav'))
         self.assertTrue(ready('generate', voice='saved.pt'))
         self.assertFalse(ready('generate'))
+
+    def test_design_placeholder_cannot_be_submitted(self):
+        with patch.object(app, 'load_model') as load:
+            with self.assertRaisesRegex(ValueError, 'Describe the voice'):
+                app.generate_workflow_mode('design', 'single', None, 0, None, '', True,
+                    '', None, 'Actual commentary', '', 'English', 42, True, False,
+                    *app.SETTING_DEFAULTS)
+            load.assert_not_called()
 
     def test_design_single_uses_shared_composer_values(self):
         state = {'audio': 'preview.wav', 'sha256': 'hash', 'transcript': 'Shared commentary'}

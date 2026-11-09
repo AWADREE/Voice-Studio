@@ -8,14 +8,14 @@ Audited against `qwen_tts/cli/demo.py` (`build_demo`, its `voice_design` branch,
 | --- | --- |
 | Text, four lines, with a starter example | Shared central Commentary text, four lines, required and at most 2,000 characters. The original sample is not prefilled so switching modes never replaces the user's script. |
 | Language, default Auto | Shared central Language dropdown; all 11 choices are present. It starts at English, Voice Studio's established default, and retains the user's selection through mode switches. |
-| Voice Design Instruction, three lines, with a starter example | Voice design instruction, three lines, with the same starter example; required |
+| Voice Design Instruction, three lines, with a starter example | Voice design instruction, three lines, required; the upstream example is a placeholder so an unedited example is never submitted |
 | Generate button | Shared central Generate commentary button routes to the selected workflow, with a busy state. |
 | Output Audio player | Shared Generated audio player and WAV download |
 | Status textbox | Shared status message; reports validation, model, and generation errors and the saved output path |
 | Checkpoint and model-type header | Read-only Base and VoiceDesign model/cache fields in General settings |
 | Global disclaimer | Voice Studio's local-use and rights guidance is in its README. This is informational text, not a generation control. |
 
-The upstream dropdown builds its choices from `model.get_supported_languages()`. The cached 1.7B VoiceDesign checkpoint exposes Auto, Chinese, English, German, Italian, Portuguese, Spanish, Japanese, Korean, French, and Russian. Voice Studio exposes exactly that set. The voice instruction keeps the upstream starter value. The shared script and language keep Voice Studio's established initial state, so mode changes preserve entered commentary and settings.
+The upstream dropdown builds its choices from `model.get_supported_languages()`. The cached 1.7B VoiceDesign checkpoint exposes Auto, Chinese, English, German, Italian, Portuguese, Spanish, Japanese, Korean, French, and Russian. Voice Studio exposes exactly that set. The voice instruction initially has an empty value and displays the upstream example as a placeholder. The shared script and language keep Voice Studio's established initial state, so mode changes preserve entered commentary and settings.
 
 ## Generation settings
 

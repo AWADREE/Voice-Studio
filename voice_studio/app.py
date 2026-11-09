@@ -849,7 +849,7 @@ def build_ui():
                             with gr.Column(elem_id='design-inputs'):
                                 gr.Markdown('## Design a voice')
                                 gr.Markdown('Describe a new voice and create a sample to review. Each generation can vary.', elem_classes=['section-note'])
-                                design_description = gr.Textbox(label='Voice design instruction', lines=3, value='Speak in an incredulous tone, but with a hint of panic beginning to creep into your voice.')
+                                design_description = gr.Textbox(label='Voice design instruction', lines=3, value='', placeholder='Speak in an incredulous tone, but with a hint of panic beginning to creep into your voice.')
                         with gr.Column(scale=1, min_width=340, elem_classes=['studio-panel']):
                             gr.Markdown('## Generate')
                             gr.Markdown('Write one commentary or create timestamped clips with the selected workflow.', elem_classes=['section-note'])
