@@ -233,7 +233,7 @@ def generate_design(text, description, language, seed, release_after, *settings)
         sf.write(path, wav, sr, subtype='PCM_24')
         authorize_generated_file(path)
         (OUTPUTS / (stamp + '.json')).write_text(json.dumps({'mode': 'voice_design', 'text': text, 'voice_description': description, 'language': language, 'seed': seed, 'generation_settings': options}, indent=2), encoding='utf-8')
-        return str(path), str(path), f'Design audition saved as WAV: {path}\nGenerated in {time.time()-start:.1f} seconds. Listen before approving it. No .pt voice has been saved yet.'
+        return str(path), str(path), f'Design audition saved as WAV: {path}\nGenerated in {time.time()-start:.1f} seconds. Listen to the sample, then save it as a voice if you want to reuse it. No .pt voice has been saved yet.'
     except Exception as exc:
         raise gr.Error(str(exc)) from exc
     finally:
@@ -304,7 +304,7 @@ def clone_audition(audio, transcript, include_transcript, text, instruction, lan
         state = {'audio':str(path),'sha256':hashlib.sha256(path.read_bytes()).hexdigest(),
                  'transcript':transcript,'source':'clone_reference','prompt':prompt,
                  'sample_text':text,'identity_only':not include_transcript}
-        note = 'The original reference voice will be saved only after you approve this audition. No .pt voice has been saved yet.'
+        note = 'The original reference voice will be saved when you choose Save audition as voice .pt. No .pt voice has been saved yet.'
         return str(path),str(path),f'Clone audition: {path}\nGenerated in {time.time()-start:.1f} seconds. {note}',state,transcript,False
     except Exception as exc:
         raise gr.Error(str(exc)) from exc
@@ -379,8 +379,9 @@ def clone_reference_and_save(audio, transcript, include_transcript, text, instru
 
 def save_preview_voice(preview, confirmed):
     import hashlib
-    if not preview or not confirmed:
-        raise gr.Error('Generate a preview, listen to it, and confirm that it says the displayed preview transcript exactly.')
+    # Retain the legacy argument for Python callers, but saving needs no approval checkbox.
+    if not preview:
+        raise gr.Error('Generate an audition sample before saving a voice.')
     audio = Path(preview['audio']).resolve()
     if audio.parent not in (STORAGE.output_history | {OUTPUTS.resolve()}) or not audio.is_file() or audio.suffix.lower() != '.wav':
         raise gr.Error('The preview audio is unavailable. Generate another preview.')
@@ -404,7 +405,7 @@ def save_preview_voice(preview, confirmed):
             torch.save({'items':[item]}, path)
             read_voice(path)
             authorize_generated_file(path)
-            return str(path), 'Original reference voice saved after audition approval. This .pt uses the original reference audio, not the generated audition WAV.'
+            return str(path), 'Original reference voice saved. This .pt uses the original reference audio, not the generated audition WAV.'
         except Exception as exc:
             if path and path.is_file():
                 path.unlink()
@@ -536,11 +537,8 @@ def _atomic_preview_controls(result):
     controls = preview_action_visibility(result[3])
     preview = result[3] or {}
     reference = preview.get('source') == 'clone_reference'
-    confirm_label = ('I listened to the audition and checked the original reference transcript'
-                     if reference and not preview.get('identity_only') else
-                     'I listened to and approve this audition sample')
     correction_label = 'Actual words in original reference audio' if reference else 'Actual words in audition sample'
-    return (*result[:5], gr.update(value=False, label=confirm_label), controls[0],
+    return (*result[:5], False, controls[0],
             gr.update(value=preview.get('transcript',''), label=correction_label, visible=not (reference and preview.get('identity_only'))),
             controls[3], controls[4], gr.update(value=False, visible=not (reference and preview.get('identity_only'))))
 
@@ -945,7 +943,7 @@ def build_ui():
                                         gr.DownloadButton('Download '+clip['label'], value=clip['audio'])
                         render_timeline_combine(batch_result, workflow, commentary_mode)
                         with gr.Column(visible=False, elem_classes=['studio-presence']) as preview_actions:
-                            preview_confirm = gr.Checkbox(label='I listened to and approve this audition sample', value=False)
+                            preview_confirm = gr.State(False)  # Compatibility slot; no approval UI or save gate.
                             use_correction = gr.Checkbox(label='Correct transcript before saving', value=False, interactive=True, elem_id='edit-transcript')
                             correction = gr.Textbox(label='Actual words in audition sample', lines=3, visible=True, interactive=True, elem_id='correction-editor')
                             save_preview = gr.Button('Save audition as voice .pt', elem_classes=['primary-action'])
@@ -956,8 +954,6 @@ def build_ui():
                 bind_busy_action(save,save_voice_display,[ref_s,transcript_s,xvec_s],[saved,save_status],'Save voice file','Saving voice...',1)
                 voice.upload(select_uploaded_voice,[voice],[info],api_name='inspect_voice',queue=False)
                 voice.clear(select_uploaded_voice,[voice],[info],api_name=False,queue=False)
-                use_correction.input(lambda: False, outputs=preview_confirm, api_name=False, queue=False)
-                correction.input(lambda: False, outputs=preview_confirm, api_name=False, queue=False)
                 workflow_ticket = gr.State(0)
                 button.click(workflow_started, inputs=workflow, outputs=[button,generation_notice,generation_busy,workflow_ticket],queue=False,api_name=False,
                     js="(workflow) => document.querySelector('#voice-mode-tabs button[aria-pressed=\"true\"]')?.dataset.voiceMode || workflow").then(

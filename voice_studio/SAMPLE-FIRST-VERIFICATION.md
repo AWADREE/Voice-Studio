@@ -9,3 +9,6 @@
 - After fix, visible forms and outer fields stayed at 522.328125px desktop and 534px at 760px viewport in both directions (0 indicates fully hidden, not interpolated width). Sampled actual animation frames; opacity continued changing. Narrow captures had 5–6 sampled frames over 500ms. Desktop captures included intermediate fades and settled endpoints.
 - Unit regression tests cover fractional geometry, rapid reversal, narrow/desktop, reduced motion and retained inputs. Existing fade/move/height/delivery animations retained.
 - Temporary browser measurement code removed after verification. No push or merge.
+
+## Update: direct audition saving (2026-11-09)
+The audition approval checkbox and its backend save requirement have been removed from Clone and Design. Generate a sample, optionally correct its transcript, then choose Save audition as voice .pt directly. This supersedes earlier checkbox/approval descriptions in this verification record. Existing preview integrity checks, original-reference cloning, transcript correction, and explicit (not automatic) saving remain.

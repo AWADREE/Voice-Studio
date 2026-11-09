@@ -20,13 +20,13 @@ class LegacyApiContractTests(unittest.TestCase):
   self.check_endpoint('/save_voice',['audio','transcript','include_transcript'],2)
 
  def test_clone_reference_named_parameters_and_return_arity(self):
-  self.check_endpoint('/clone_reference_preview',['audio','transcript','include','text','instruction','language','seed','release']+[f'param_{i}' for i in range(9,19)],13)
+  self.check_endpoint('/clone_reference_preview',['audio','transcript','include','text','instruction','language','seed','release']+[f'param_{i}' for i in range(9,19)],12)
 
  def test_save_preview_named_parameters(self):
-  self.check_endpoint('/save_preview_voice',['confirmed','correction','use_correction'],2)
+  self.check_endpoint('/save_preview_voice',['correction','use_correction'],2)
 
  def test_single_generate_legacy_contract(self):
-  self.check_endpoint('/generate',[f'param_{i}' for i in range(17)],9)
+  self.check_endpoint('/generate',[f'param_{i}' for i in range(17)],8)
 
  def test_unload_endpoints_are_retained(self):
   self.check_endpoint('/unload',[],1)

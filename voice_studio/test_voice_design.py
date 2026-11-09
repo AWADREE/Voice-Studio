@@ -105,7 +105,7 @@ class VoiceDesignTests(unittest.TestCase):
                     app.load_model('voice_design')
                 self.assertIsNone(app._model)
 
-    def test_design_preview_uses_existing_confirmation_flow(self):
+    def test_design_preview_saves_without_confirmation(self):
         with tempfile.TemporaryDirectory() as folder:
             wav = Path(folder)/'take.wav'; wav.write_bytes(b'preview')
             with patch.object(app, 'generate_design', return_value=(str(wav), str(wav), 'ok')):
@@ -114,11 +114,9 @@ class VoiceDesignTests(unittest.TestCase):
             self.assertFalse(result[5])
             with patch.object(app, 'save_voice', return_value=('voice.pt', 'ok')) as save:
                 with patch.object(app, 'OUTPUTS', Path(folder)):
-                    path, _ = app.save_preview_voice(result[3], True)
+                    path, _ = app.save_preview_voice(result[3], False)
                 self.assertEqual(path, 'voice.pt')
                 save.assert_called_once_with(str(wav.resolve()), 'Hello.', False)
-            with self.assertRaises(Exception):
-                app.save_preview_voice(result[3], False)
 
     def test_failed_design_clears_stale_preview(self):
         with patch.object(app, 'generate_design_preview', side_effect=RuntimeError('model unavailable')):
@@ -129,14 +127,14 @@ class VoiceDesignTests(unittest.TestCase):
         self.assertFalse(result[5])
         self.assertFalse(result[6]['visible'])
 
-    def test_successful_design_exposes_confirmation_controls(self):
+    def test_successful_design_exposes_save_controls(self):
         state = {'audio': 'preview.wav', 'sha256': 'hash', 'transcript': 'Hello.'}
         with patch.object(app, 'generate_design_preview', return_value=('preview.wav', 'preview.wav', 'ok', state, 'Hello.', False)):
             result = app.design_submission('Hello.', 'voice', 'English', 42, True)
         self.assertEqual(len(result), 11)
         self.assertEqual(result[3], state)
         self.assertTrue(result[6]['visible'])
-        self.assertFalse(result[5]['value'])
+        self.assertFalse(result[5])
 
     def test_design_ui_has_all_inputs_and_shared_preview_state(self):
         cfg = app.build_ui().get_config_file()
