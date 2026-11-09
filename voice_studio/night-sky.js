@@ -273,7 +273,7 @@
             motion.from.style.removeProperty('position');
             motion.from.style.removeProperty('top');
             motion.from.style.removeProperty('left');
-            motion.from.style.removeProperty('right');
+            motion.from.style.removeProperty('width');
             motion.from.inert=false;
             reference.style.removeProperty('height');
         };
@@ -294,6 +294,7 @@
             const toOpacity=Number(getComputedStyle(to).opacity);
             const fromTransform=getComputedStyle(from).transform;
             const toTransform=getComputedStyle(to).transform;
+            const fromWidth=from.getBoundingClientRect().width;
             const deliveryChanges=Boolean(delivery && (priorMode==='design') !== (nextMode==='design'));
             const deliveryStartHeight=delivery?.getBoundingClientRect().height || 0;
             const deliveryStartOpacity=delivery ? Number(getComputedStyle(delivery).opacity) : 0;
@@ -320,7 +321,7 @@
                 from.style.setProperty('position','absolute');
                 from.style.setProperty('top',getComputedStyle(reference).paddingTop);
                 from.style.setProperty('left',getComputedStyle(reference).paddingLeft);
-                from.style.setProperty('right',getComputedStyle(reference).paddingRight);
+                from.style.setProperty('width',fromWidth+'px','important');
                 from.inert=true;
             }
             reference.querySelectorAll('.studio-reference-audio').forEach(el=>{
