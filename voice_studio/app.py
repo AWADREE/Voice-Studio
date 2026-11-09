@@ -451,7 +451,7 @@ def compose_controls(batch=False, clone_button=None, clone_busy=None):
         with gr.Tabs(elem_id='commentary-mode-tabs'):
             with gr.Tab('Single commentary') as single_tab:
                 text = gr.Textbox(label='Commentary text', lines=4, placeholder='Normal summon Dark Necromancer...')
-            with gr.Tab('Timestamped clips') as batch_tab:
+            with gr.Tab('Multiple clips') as batch_tab:
                 gr.Markdown('Each timestamp labels a separate clip for editing. No silence is inserted. Shared settings above apply to every clip.', elem_classes=['section-note'])
                 entries = gr.HTML([{'minutes':0,'seconds':0,'text':''}], html_template=ui_asset_text('clip-editor.html'), js_on_load=ui_asset_text('paragraph-timing.js')+'\n'+ui_asset_text('clip-editor.js'), elem_id='clip-editor', css_template=ui_asset_text('clip-editor.css'))
         if clone_button is not None:
@@ -687,7 +687,7 @@ def generate_workflow_mode(workflow, mode, rows, token, ref_audio, ref_transcrip
     if workflow not in ('clone', 'design', 'generate'):
         raise ValueError('Choose Clone, Design, or Generate.')
     if mode not in ('single', 'batch'):
-        raise ValueError('Choose single commentary or timestamped clips.')
+        raise ValueError('Choose single commentary or multiple clips.')
     if workflow == 'generate':
         return (*generate_commentary_mode(mode, rows, voice, text, instruction, language,
                                           seed, release, identity, *settings, progress=progress),
@@ -865,7 +865,7 @@ def build_ui():
                                 design_description = gr.Textbox(label='Voice design instruction', lines=3, value='', placeholder='Speak in an incredulous tone, but with a hint of panic beginning to creep into your voice.')
                         with gr.Column(scale=1, min_width=340, elem_classes=['studio-panel']):
                             gr.Markdown('## Generate')
-                            gr.Markdown('Write an audition in Clone or Design. Generate supports single commentary and timestamped clips.', elem_classes=['section-note'])
+                            gr.Markdown('Write an audition in Clone or Design. Generate supports single commentary and multiple clips.', elem_classes=['section-note'])
                             with gr.Column(elem_id='saved-voice-inputs'):
                                 gr.Markdown('Use an existing .pt voice to create commentary.', elem_classes=['section-note'])
                                 voice = gr.File(label='Voice file (.pt)', file_types=['.pt'], type='filepath', height=130, elem_classes=['studio-voice-input'])

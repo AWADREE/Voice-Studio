@@ -4,7 +4,7 @@ const button={disabled:true,textContent:'Generate commentary'};
 const text={value:''},transcript={value:''},description={value:''},include={checked:true};
 const number={value:'42',min:'',max:''},language={value:'English'};
 const reference={querySelector:s=>s==='textarea'?transcript:s==='input[type="checkbox"]'?include:null};
-const tabs={querySelector:s=>s.includes('role=')?{textContent:batch?'Timestamped clips':'Single commentary'}:text,
+const tabs={querySelector:s=>s.includes('role=')?{textContent:batch?'Multiple clips':'Single commentary'}:text,
  querySelectorAll:()=>[],parentElement:{querySelectorAll:()=>[number],querySelector:()=>language}};
 const workspace={classList:{contains:name=>name===mode+'-mode'}};
 const root={addEventListener:(type,f)=>{refresh=f}};
