@@ -249,12 +249,37 @@
     if (modeNav && workspace && reference && !modeNav.dataset.bound) {
         modeNav.dataset.bound = 'true';
         let modeTimer;
+        let formMotion;
+        const stopFormMotion=()=>{
+            if(!formMotion)return;
+            const motion=formMotion;formMotion=null;
+            motion.animations.forEach(animation=>animation.cancel());
+            motion.from.style.removeProperty('display');
+            motion.from.style.removeProperty('position');
+            motion.from.style.removeProperty('top');
+            motion.from.style.removeProperty('left');
+            motion.from.style.removeProperty('right');
+            motion.from.inert=false;
+            reference.style.removeProperty('height');
+        };
         modeNav.addEventListener('click', event => {
             const button = event.target.closest('button[data-voice-mode]');
             if (!button) return;
             const generate = button.dataset.voiceMode === 'generate';
             const design = button.dataset.voiceMode === 'design';
             if(generate === workspace.classList.contains('generate-mode') && design === workspace.classList.contains('design-mode'))return;
+            const priorMode=workspace.classList.contains('generate-mode')?'generate':workspace.classList.contains('design-mode')?'design':'clone';
+            const nextMode=button.dataset.voiceMode;
+            const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
+            const switchForms=priorMode!=='generate' && nextMode!=='generate';
+            const from=priorMode==='design'?document.querySelector('#design-inputs'):document.querySelector('#clone-inputs');
+            const to=nextMode==='design'?document.querySelector('#design-inputs'):document.querySelector('#clone-inputs');
+            const startHeight=reference.getBoundingClientRect().height;
+            const fromOpacity=Number(getComputedStyle(from).opacity);
+            const toOpacity=Number(getComputedStyle(to).opacity);
+            const fromTransform=getComputedStyle(from).transform;
+            const toTransform=getComputedStyle(to).transform;
+            stopFormMotion();
             clearTimeout(modeTimer);
             // Freeze the inner form at its expanded width in BOTH directions.
             // Otherwise the expanding zero-width grid rewraps the source tabs,
@@ -263,6 +288,15 @@
             const panelWidth = narrow ? workspace.clientWidth : (workspace.clientWidth - 24) / 2;
             workspace.style.setProperty('--reference-content-width', Math.max(0, panelWidth - 48) + 'px');
             workspace.classList.add('mode-transitioning');
+            if(switchForms && !reduced){
+                reference.style.height=startHeight+'px';
+                from.style.setProperty('display','flex','important');
+                from.style.setProperty('position','absolute');
+                from.style.setProperty('top',getComputedStyle(reference).paddingTop);
+                from.style.setProperty('left',getComputedStyle(reference).paddingLeft);
+                from.style.setProperty('right',getComputedStyle(reference).paddingRight);
+                from.inert=true;
+            }
             reference.querySelectorAll('.studio-reference-audio').forEach(el=>{
                 const old=pickerGeometry.get(el);
                 old?.animation?.cancel();old?.bodyAnimation?.cancel();
@@ -275,6 +309,19 @@
             },matchMedia('(prefers-reduced-motion: reduce)').matches?0:260);
             workspace.classList.toggle('generate-mode', generate);
             workspace.classList.toggle('design-mode', design);
+            if(switchForms && !reduced){
+                reference.style.height='auto';
+                const endHeight=reference.getBoundingClientRect().height;
+                reference.style.height=startHeight+'px';
+                const timing={duration:240,easing:'cubic-bezier(.2,.7,.2,1)'};
+                const animations=[
+                    reference.animate([{height:startHeight+'px'},{height:endHeight+'px'}],timing),
+                    from.animate([{opacity:fromOpacity,transform:fromTransform},{opacity:0,transform:'translateY(-10px)'}],{...timing,duration:160,fill:'forwards'}),
+                    to.animate([{opacity:toOpacity===1?0:toOpacity,transform:toOpacity===1?'translateY(10px)':toTransform},{opacity:1,transform:'translateY(0)'}],timing)
+                ];
+                const motion={from,animations};formMotion=motion;
+                animations[0].onfinish=()=>{if(formMotion===motion)stopFormMotion();};
+            }
             reference.inert = generate;
             reference.setAttribute('aria-hidden', String(generate));
             modeNav.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b === button)));
