@@ -8,6 +8,8 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import numpy as np
+import soundfile as sf
+import torch
 import app
 
 
@@ -25,11 +27,14 @@ class VoiceDesignTests(unittest.TestCase):
         ref_text, ref_language, ref_instruction = ref_controls[:3]
         studio = app.build_ui().get_config_file()
         components = {c['id']: c for c in studio['components']}
-        design = next(d for d in studio['dependencies'] if d.get('api_name') is False and any(components[i]['props'].get('label') == 'Voice design instruction' for i in d['inputs']))
-        text, instruction, language = (components[i]['props'] for i in design['inputs'][:3])
-        self.assertEqual(text['value'], ref_text['props']['value'])
+        design = next(d for d in studio['dependencies'] if d.get('api_name') == 'generate_commentary')
+        labels = [components[i]['props'].get('label') for i in design['inputs']]
+        instruction = components[design['inputs'][labels.index('Voice design instruction')]]['props']
+        language = components[design['inputs'][labels.index('Language')]]['props']
+        self.assertIn('Commentary text', labels)
+        self.assertNotIn('Preview text', labels)
         self.assertEqual(instruction['value'], ref_instruction['props']['value'])
-        self.assertEqual(language['value'], ref_language['props']['value'])
+        self.assertEqual(language['value'], 'English')
         self.assertEqual({choice[1] for choice in language['choices']}, {choice[1] for choice in ref_language['props']['choices']})
         self.assertEqual({action.dest for action in build_parser()._actions if action.dest in app.SETTING_NAMES},
                          set(app.SETTING_NAMES) - {'do_sample', 'subtalker_dosample'})
@@ -135,16 +140,117 @@ class VoiceDesignTests(unittest.TestCase):
     def test_design_ui_has_all_inputs_and_shared_preview_state(self):
         cfg = app.build_ui().get_config_file()
         components = {c['id']: c for c in cfg['components']}
-        design = next(d for d in cfg['dependencies'] if d.get('api_name') is False and any(components[i]['props'].get('label') == 'Voice design instruction' for i in d['inputs']))
+        design = next(d for d in cfg['dependencies'] if d.get('api_name') == 'generate_commentary')
         labels = [components[i]['props'].get('label') for i in design['inputs']]
-        self.assertEqual(labels[:5], ['Preview text', 'Voice design instruction', 'Language', 'Seed', 'Release GPU memory after generation'])
-        self.assertEqual(labels[5:], ['Maximum new tokens','Temperature','Top-k','Top-p','Repetition penalty','Enable speech sampling','Subtalker temperature','Subtalker top-k','Subtalker top-p','Enable subtalker sampling'])
-        self.assertEqual(len(design['outputs']), 11)
+        self.assertEqual(labels[:15], ['Workflow mode',None,None,None,'Reference audio','Reference transcript','Include reference transcript','Voice design instruction','Voice file (.pt)','Commentary text','Delivery instruction (optional)','Language','Seed','Release GPU memory after generation','Use voice identity only'])
+        self.assertEqual(labels[15:], ['Maximum new tokens','Temperature','Top-k','Top-p','Repetition penalty','Enable speech sampling','Subtalker temperature','Subtalker top-k','Subtalker top-p','Enable subtalker sampling'])
+        self.assertEqual(len(design['outputs']), 19)
         self.assertTrue(any(c['props'].get('elem_id') == 'design-inputs' for c in cfg['components']))
-        self.assertIn('top drawer', components[design['inputs'][0]]['props']['value'])
-        self.assertIn('incredulous tone', components[design['inputs'][1]]['props']['value'])
-        self.assertEqual(components[design['inputs'][2]]['props']['value'], 'Auto')
-        self.assertEqual({choice[1] for choice in components[design['inputs'][2]]['props']['choices']}, set(app.LANGUAGES))
+        self.assertEqual(sum(label == 'Preview text' for label in labels), 0)
+        self.assertEqual(sum(label == 'Voice design instruction' for label in labels), 1)
+        self.assertEqual(sum(label == 'Commentary text' for label in labels), 1)
+        self.assertEqual(sum(label == 'Maximum new tokens' for label in labels), 1)
+        self.assertIn('incredulous tone', components[design['inputs'][7]]['props']['value'])
+        self.assertEqual({choice[1] for choice in components[design['inputs'][11]]['props']['choices']}, set(app.LANGUAGES))
+
+    def test_shared_workflow_readiness(self):
+        rows = [{'minutes': 0, 'seconds': 1, 'text': 'First line'}]
+        def ready(workflow, mode='single', *, voice=None, ref=None, transcript='', include=True,
+                  description='', text='Shared commentary'):
+            return app.workflow_ready(workflow, mode, rows, voice, ref, transcript, include,
+                                      description, text, False, *app.SETTING_DEFAULTS)
+        self.assertTrue(ready('design', description='Warm voice'))
+        self.assertTrue(ready('design', 'batch', description='Warm voice'))
+        self.assertFalse(ready('design'))
+        self.assertTrue(ready('clone', ref='reference.wav', transcript='Spoken reference'))
+        self.assertTrue(ready('clone', 'batch', ref='reference.wav', include=False))
+        self.assertFalse(ready('clone', ref='reference.wav'))
+        self.assertTrue(ready('generate', voice='saved.pt'))
+        self.assertFalse(ready('generate'))
+
+    def test_design_single_uses_shared_composer_values(self):
+        state = {'audio': 'preview.wav', 'sha256': 'hash', 'transcript': 'Shared commentary'}
+        with patch.object(app, 'generate_design_preview', return_value=('preview.wav', 'preview.wav',
+                'ok', state, 'Shared commentary', False)) as design:
+            result = app.generate_workflow_mode('design', 'single', None, 0, None, '', True,
+                'Warm voice', None, 'Shared commentary', 'Ignored Base direction', 'Japanese', 7,
+                True, False, *app.SETTING_DEFAULTS)
+        design.assert_called_once_with('Shared commentary', 'Warm voice', 'Japanese', 7, True,
+                                       *app.SETTING_DEFAULTS)
+        self.assertEqual(len(result), 19)
+        self.assertEqual(result[3], state)
+        self.assertTrue(result[6]['visible'])
+
+    def test_design_timestamped_uses_voice_design_for_every_clip(self):
+        rows = [{'minutes': 0, 'seconds': 3, 'text': 'First'},
+                {'minutes': 1, 'seconds': 5, 'text': 'Second'}]
+        with tempfile.TemporaryDirectory() as folder, patch.object(app, 'OUTPUTS', Path(folder)), \
+             patch.object(app, 'release_model') as release:
+            produced = []
+            def make_clip(text, description, language, seed, release_after, *settings):
+                path = Path(folder)/(text+'.wav'); path.write_bytes(b'RIFFtest')
+                produced.append((text, description, language, seed, release_after, settings))
+                return str(path), str(path), 'ok'
+            with patch.object(app, 'generate_design', side_effect=make_clip):
+                result = app.generate_workflow_mode('design', 'batch', rows, 0, None, '', True,
+                    'Low, warm voice', None, 'Unused single text', 'Ignored Base direction',
+                    'English', 11, True, False, *app.SETTING_DEFAULTS)
+            self.assertEqual([call[0] for call in produced], ['First', 'Second'])
+            self.assertTrue(all(call[1:5] == ('Low, warm voice', 'English', 11, False) for call in produced))
+            self.assertEqual(len(result[11]['clips']), 2)
+            self.assertTrue(Path(result[11]['archive']).is_file())
+            release.assert_called_once()
+
+    def test_clone_timestamped_saves_reference_once(self):
+        rows = [{'minutes': 0, 'seconds': 0, 'text': 'First'},
+                {'minutes': 0, 'seconds': 2, 'text': 'Second'}]
+        with tempfile.TemporaryDirectory() as folder, patch.object(app, 'OUTPUTS', Path(folder)), \
+             patch.object(app, 'release_model'):
+            voice = Path(folder)/'saved.pt'; voice.write_bytes(b'prompt')
+            calls = []
+            def make_clip(path, text, instruction, language, seed, release_after, identity, *settings):
+                wav = Path(folder)/(text+'.wav'); wav.write_bytes(b'RIFFtest')
+                calls.append((path, text, release_after, identity))
+                return str(wav), str(wav), 'ok'
+            with patch.object(app, 'save_voice', return_value=(str(voice), 'saved')) as save, \
+                 patch.object(app, 'generate', side_effect=make_clip), \
+                 patch('gradio.processing_utils.save_file_to_cache', return_value=str(voice)), \
+                 patch.object(app.SELECTION, 'commit', return_value=True):
+                result = app.generate_workflow_mode('clone', 'batch', rows, 1, 'reference.wav',
+                    'Spoken reference', True, '', None, 'Unused', '', 'English', 42, True,
+                    False, *app.SETTING_DEFAULTS)
+            save.assert_called_once_with('reference.wav', 'Spoken reference', False, release_after=False)
+            self.assertEqual([call[1] for call in calls], ['First', 'Second'])
+            self.assertTrue(all(call[0] == str(voice) and not call[2] and not call[3] for call in calls))
+            self.assertEqual(len(result[11]['clips']), 2)
+            self.assertEqual(result[15]['value'], str(voice))
+
+    def test_clone_decodes_local_wav_without_slow_path_loader(self):
+        with tempfile.TemporaryDirectory() as folder:
+            source = Path(folder)/'source.wav'
+            sf.write(source, np.zeros((2400, 2), dtype=np.float32), 24000)
+            prompt = app.VoiceClonePromptItem(ref_code=None, ref_spk_embedding=torch.zeros(8),
+                x_vector_only_mode=True, icl_mode=False, ref_text=None)
+            fake = MagicMock()
+            fake.create_voice_clone_prompt.return_value = [prompt]
+            with patch.object(app, 'VOICES', Path(folder)/'voices'), \
+                 patch.object(app, 'load_model', return_value=fake), \
+                 patch.object(app, 'release_model'), patch.object(app, 'read_voice'):
+                path, _ = app.save_voice(str(source), '', True)
+            self.assertTrue(Path(path).is_file())
+            ref_audio = fake.create_voice_clone_prompt.call_args.kwargs['ref_audio']
+            self.assertIsInstance(ref_audio, tuple)
+            self.assertEqual(ref_audio[0].shape, (2400,))
+            self.assertEqual(ref_audio[1], 24000)
+
+    def test_clone_batch_failure_honors_model_release(self):
+        rows = [{'minutes': 0, 'seconds': 0, 'text': 'Hello'}]
+        with patch.object(app, 'save_voice', side_effect=RuntimeError('bad reference')), \
+             patch.object(app, 'release_model') as release:
+            with self.assertRaisesRegex(RuntimeError, 'bad reference'):
+                app.generate_workflow_mode('clone', 'batch', rows, 0, 'reference.wav', '', False,
+                    '', None, '', '', 'English', 42, True, False, *app.SETTING_DEFAULTS)
+            release.assert_called_once()
 
 
 if __name__ == '__main__':

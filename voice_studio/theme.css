@@ -57,7 +57,9 @@ footer[aria-label="Gradio footer navigation"]>button.show-api img,footer[aria-la
 #design-inputs{display:none!important}
 #voice-mode-workspace.design-mode #clone-inputs{display:none!important}
 #voice-mode-workspace.design-mode #design-inputs{display:flex!important}
-#production-workspace:has(.design-mode) #batch-output{display:none!important}
+#workflow-mode{display:none!important}
+#voice-mode-workspace:not(.generate-mode) #saved-voice-inputs{display:none!important}
+#voice-mode-workspace.design-mode #base-delivery-instruction,#voice-mode-workspace.design-mode #base-identity-only{display:none!important}
 
 /* Full-width production desk: inputs left, listening/export right. */
 .gradio-container{max-width:none!important;width:100%!important;padding-left:32px!important;padding-right:32px!important}

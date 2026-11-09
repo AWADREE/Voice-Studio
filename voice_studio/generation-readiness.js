@@ -7,9 +7,11 @@
   const voice=document.querySelector('.studio-voice-input .filename[aria-label]');
   const tabs=document.getElementById('commentary-mode-tabs');
   const batch=tabs?.querySelector('[role="tab"][aria-selected="true"]')?.textContent.includes('Timestamped');
-  const busy=/Generating commentary/.test(button.textContent)||[...root.querySelectorAll('button')].some(b=>/Cloning & generating/.test(b.textContent));
+  const busy=/Generating commentary/.test(button.textContent);
   let contentValid=true;
-  let valid=!!voice&&/\.pt$/i.test(voice.getAttribute('aria-label'))&&!busy;
+  const workspace=document.getElementById('voice-mode-workspace');
+  const mode=workspace?.classList.contains('generate-mode')?'generate':workspace?.classList.contains('design-mode')?'design':'clone';
+  let valid=!busy;
   if(batch){
    const rows=[...tabs.querySelectorAll('.clip-list .clip-row:not([data-removing])')];
    contentValid=rows.length>0&&rows.length<=100&&rows.every(row=>{
@@ -27,13 +29,16 @@
   const language=panel?.querySelector('[role="listbox"]');
   const languages=['Auto','English','Chinese','Japanese','Korean','German','French','Russian','Portuguese','Spanish','Italian'];
   if(!language||!languages.includes(language.value))contentValid=false;
+  if(mode==='generate')valid=valid&&!!voice&&/\.pt$/i.test(voice.getAttribute('aria-label'));
+  if(mode==='clone'){
+   const reference=document.getElementById('clone-inputs');
+   const include=reference?.querySelector('input[type="checkbox"]')?.checked;
+   const transcript=reference?.querySelector('textarea');
+   const hasAudio=!!window.voiceStudioReferenceReady||!!reference?.querySelector('.studio-reference-audio .file-preview-holder');
+   valid=valid&&hasAudio&&(!include||!!transcript?.value.trim());
+  }
+  if(mode==='design')valid=valid&&!!document.querySelector('#design-inputs textarea')?.value.trim();
   valid=valid&&contentValid;
-  const clone=document.getElementById('clone-reference-commentary');
-  const reference=document.getElementById('reference-panel');
-  const include=reference?.querySelector('input[type="checkbox"]')?.checked;
-  const transcript=reference?.querySelector('textarea');
-  const cloneValid=!!window.voiceStudioReferenceReady&&!batch&&contentValid&&!busy&&(!include||!!transcript?.value.trim());
-  if(clone&&clone.disabled===cloneValid)clone.disabled=!cloneValid;
   if(button.disabled===valid)button.disabled=!valid;
  }
  root.addEventListener('input',refresh);root.addEventListener('change',refresh);

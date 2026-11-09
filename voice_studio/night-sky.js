@@ -276,6 +276,13 @@
             reference.inert = generate;
             reference.setAttribute('aria-hidden', String(generate));
             modeNav.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b === button)));
+            const workflowField=document.querySelector('#workflow-mode input, #workflow-mode textarea');
+            if(workflowField && 'value' in workflowField){
+                workflowField.value=button.dataset.voiceMode;
+                workflowField.dispatchEvent(new Event('input',{bubbles:true}));
+                workflowField.dispatchEvent(new Event('change',{bubbles:true}));
+            }
+            workspace.dispatchEvent?.(new Event('input',{bubbles:true}));
         });
     }
 

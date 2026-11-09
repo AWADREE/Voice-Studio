@@ -1,14 +1,32 @@
-const fs=require('fs'),vm=require('vm'),assert=require('assert');let refresh;
-const generate={disabled:true,textContent:'Generate commentary'},clone={disabled:true,textContent:'Clone reference & generate commentary'};
-const text={value:''},transcript={value:''},include={checked:true},number={value:'42',min:'',max:''};let batch=false,voice=null;const language={value:'English'};
-const reference={querySelector:s=>s==='textarea'?transcript:include};
-const tabs={querySelector:s=>s.includes('role=')?{textContent:batch?'Timestamped clips':'Single commentary'}:text,querySelectorAll:()=>[],parentElement:{querySelectorAll:()=>[number],querySelector:()=>language}};
-const root={addEventListener:(type,f)=>{refresh=f},querySelectorAll:()=>[generate,clone]};
-const document={getElementById:id=>({'production-workspace':root,'generate-commentary':generate,'clone-reference-commentary':clone,'reference-panel':reference,'commentary-mode-tabs':tabs}[id]),querySelector:()=>voice};const window={};
-vm.runInNewContext('('+fs.readFileSync('generation-readiness.js','utf8')+')()',{window,document,MutationObserver:class{observe(){}}});
-assert(clone.disabled);text.value='Hello';refresh();assert(clone.disabled);window.voiceStudioReferenceReady=true;refresh();assert(clone.disabled);transcript.value='Reference';refresh();assert(!clone.disabled);assert(generate.disabled,'clone does not need saved pt');
-transcript.value='';include.checked=false;refresh();assert(!clone.disabled);include.checked=true;refresh();assert(clone.disabled);
-transcript.value='Reference';number.value='';refresh();assert(clone.disabled);number.value='42';text.value='x'.repeat(2001);refresh();assert(clone.disabled);text.value='Valid';
-batch=true;refresh();assert(clone.disabled);batch=false;clone.textContent='Cloning & generating...';refresh();assert(clone.disabled);clone.textContent='Clone reference & generate commentary';refresh();assert(!clone.disabled);
-generate.textContent='Generating commentary...';refresh();assert(clone.disabled);generate.textContent='Generate commentary';window.voiceStudioReferenceReady=false;refresh();assert(clone.disabled);
-voice={getAttribute:()=> 'voice.pt'};refresh();assert(!generate.disabled);language.value='';refresh();assert(generate.disabled);language.value='English';refresh();assert(!generate.disabled);console.log('PASS clone and generation readiness: empty/reference/transcript toggle/settings/limit/mode/busy/recovery/independent voice paths');
+const fs=require('fs'),vm=require('vm'),assert=require('node:assert/strict');
+let refresh,mode='clone',batch=false,voice=null;
+const button={disabled:true,textContent:'Generate commentary'};
+const text={value:''},transcript={value:''},description={value:''},include={checked:true};
+const number={value:'42',min:'',max:''},language={value:'English'};
+const reference={querySelector:s=>s==='textarea'?transcript:s==='input[type="checkbox"]'?include:null};
+const tabs={querySelector:s=>s.includes('role=')?{textContent:batch?'Timestamped clips':'Single commentary'}:text,
+ querySelectorAll:()=>[],parentElement:{querySelectorAll:()=>[number],querySelector:()=>language}};
+const workspace={classList:{contains:name=>name===mode+'-mode'}};
+const root={addEventListener:(type,f)=>{refresh=f}};
+const document={getElementById:id=>({'production-workspace':root,'generate-commentary':button,
+ 'voice-mode-workspace':workspace,'clone-inputs':reference,'commentary-mode-tabs':tabs}[id]),
+ querySelector:s=>s==='#design-inputs textarea'?description:voice};
+const window={};
+vm.runInNewContext('('+fs.readFileSync('generation-readiness.js','utf8')+')()',
+ {window,document,MutationObserver:class{observe(){}}});
+assert(button.disabled);
+text.value='Hello';refresh();assert(button.disabled);
+window.voiceStudioReferenceReady=true;transcript.value='Reference';refresh();assert(!button.disabled);
+transcript.value='';refresh();assert(button.disabled);
+include.checked=false;refresh();assert(!button.disabled);
+number.value='';refresh();assert(button.disabled);
+number.value='42';text.value='x'.repeat(2001);refresh();assert(button.disabled);
+text.value='Valid';mode='design';refresh();assert(button.disabled);
+description.value='Warm baritone';refresh();assert(!button.disabled);
+mode='generate';refresh();assert(button.disabled);
+voice={getAttribute:()=> 'voice.pt'};refresh();assert(!button.disabled);
+batch=true;refresh();assert(button.disabled);
+batch=false;button.textContent='Generating commentary...';refresh();assert(button.disabled);
+button.textContent='Generate commentary';refresh();assert(!button.disabled);
+language.value='';refresh();assert(button.disabled);
+console.log('PASS shared composer readiness across clone, design, saved voice, settings and busy states');

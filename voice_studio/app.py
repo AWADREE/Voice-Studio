@@ -260,8 +260,19 @@ def save_voice(audio, transcript, identity_only, release_after=True):
         raise gr.Error('Another operation is running. Wait for it to finish.')
     model = None
     try:
+        # Gradio supplies local audio files. Decode formats supported by
+        # soundfile directly so the model's path loader need not run librosa's
+        # expensive Python fallback when Numba JIT is disabled locally.
+        reference_input = audio
+        try:
+            waveform, sample_rate = sf.read(audio, dtype='float32', always_2d=False)
+            if waveform.ndim > 1:
+                waveform = waveform.mean(axis=1)
+            reference_input = (np.asarray(waveform, dtype=np.float32), int(sample_rate))
+        except (OSError, RuntimeError, TypeError):
+            pass  # Retain upstream decoding for other supported audio formats.
         model = load_model()
-        items = model.create_voice_clone_prompt(ref_audio=audio, ref_text=(transcript or '').strip() or None, x_vector_only_mode=bool(identity_only))
+        items = model.create_voice_clone_prompt(ref_audio=reference_input, ref_text=(transcript or '').strip() or None, x_vector_only_mode=bool(identity_only))
         payload = {'items': [{k: v.detach().cpu() if torch.is_tensor(v) else v for k,v in asdict(item).items()} for item in items]}
         folder = VOICES
         folder.mkdir(parents=True, exist_ok=True)
@@ -382,7 +393,7 @@ def compose_controls(batch=False, clone_button=None, clone_busy=None):
     if not batch:
         text = gr.Textbox(label='Commentary text', lines=4, placeholder='Normal summon Dark Necromancer...')
     mode = entries = None
-    instruction = gr.Textbox(label='Delivery instruction (optional)', lines=2, placeholder='Speak calmly and naturally, with quiet confidence.')
+    instruction = gr.Textbox(label='Delivery instruction (optional)', lines=2, placeholder='Speak calmly and naturally, with quiet confidence.', elem_id='base-delivery-instruction')
     language = gr.Dropdown(LANGUAGES, value='English', label='Language')
     seed, release, identity, settings = generation_settings_controls()
     if batch:
@@ -393,8 +404,12 @@ def compose_controls(batch=False, clone_button=None, clone_busy=None):
             with gr.Tab('Timestamped clips') as batch_tab:
                 gr.Markdown('Each timestamp labels a separate clip for editing. No silence is inserted. Shared settings above apply to every clip.', elem_classes=['section-note'])
                 entries = gr.HTML([{'minutes':0,'seconds':0,'text':''}], html_template=ui_asset_text('clip-editor.html'), js_on_load=ui_asset_text('paragraph-timing.js')+'\n'+ui_asset_text('clip-editor.js'), elem_id='clip-editor', css_template=ui_asset_text('clip-editor.css'))
-        single_tab.select(lambda busy:('single',gr.skip() if busy else gr.update(interactive=True,value='Clone reference & generate commentary')), inputs=clone_busy,outputs=[mode,clone_button], queue=False, api_name=False)
-        batch_tab.select(lambda busy:('batch',gr.skip() if busy else gr.update(interactive=False,value='Switch to Single commentary to clone')), inputs=clone_busy,outputs=[mode,clone_button], queue=False, api_name=False)
+        if clone_button is not None:
+            single_tab.select(lambda busy:('single',gr.skip() if busy else gr.update(interactive=True,value='Clone reference & generate commentary')), inputs=clone_busy,outputs=[mode,clone_button], queue=False, api_name=False)
+            batch_tab.select(lambda busy:('batch',gr.skip() if busy else gr.update(interactive=False,value='Switch to Single commentary to clone')), inputs=clone_busy,outputs=[mode,clone_button], queue=False, api_name=False)
+        else:
+            single_tab.select(lambda: 'single', outputs=mode, queue=False, api_name=False)
+            batch_tab.select(lambda: 'batch', outputs=mode, queue=False, api_name=False)
     button = gr.Button('Generate commentary', variant='primary', elem_classes=['primary-action'], elem_id='generate-commentary' if batch else None,interactive=not batch,preserved_by_key=['value','interactive'])
     return (text, instruction, language, seed, release, identity, button, settings, mode, entries) if batch else (text, instruction, language, seed, release, identity, button, settings)
 
@@ -403,7 +418,7 @@ def generation_settings_controls(include_identity=True):
     with gr.Accordion('Generation settings', open=False, elem_classes=['generation-settings']):
         seed = gr.Number(value=42, precision=0, label='Seed', info='Use -1 for random. A fixed seed helps compare takes.')
         release = gr.Checkbox(value=True, label='Release GPU memory after generation')
-        identity = gr.Checkbox(value=False, label='Use voice identity only', info='Ignore reference delivery. This may reduce resemblance.') if include_identity else None
+        identity = gr.Checkbox(value=False, label='Use voice identity only', info='Ignore reference delivery. This may reduce resemblance.', elem_id='base-identity-only') if include_identity else None
         gr.Markdown('### Speech sampling')
         max_tokens = gr.Number(value=8192, precision=0, minimum=128, maximum=32768, label='Maximum new tokens')
         temperature = gr.Slider(0.05,2.0,value=0.9,step=0.05,label='Temperature')
@@ -607,6 +622,123 @@ def generate_commentary_ui(*args, progress=gr.Progress()):
         return tuple(updates)
 
 
+def generate_workflow_mode(workflow, mode, rows, token, ref_audio, ref_transcript, include_transcript,
+                           description, voice, text, instruction, language, seed, release, identity,
+                           *settings, request: gr.Request = None, progress=gr.Progress()):
+    """One composer and output surface for all three voice workflows."""
+    if workflow not in ('clone', 'design', 'generate'):
+        raise ValueError('Choose Clone, Design, or Generate.')
+    if mode not in ('single', 'batch'):
+        raise ValueError('Choose single commentary or timestamped clips.')
+    if workflow == 'generate':
+        return (*generate_commentary_mode(mode, rows, voice, text, instruction, language,
+                                          seed, release, identity, *settings, progress=progress),
+                gr.skip(), gr.skip(), gr.skip(), gr.skip())
+    generation_options(settings)
+    if workflow == 'design':
+        if not (description or '').strip():
+            raise ValueError('Describe the voice you want to design.')
+        if language not in LANGUAGES:
+            raise ValueError('Choose a supported language.')
+        if mode == 'single':
+            result = design_submission(text, description, language, seed, release, *settings)
+            return (*result, None, gr.update(visible=False), '', gr.update(value=None, visible=False),
+                    gr.skip(), gr.skip(), gr.skip(), gr.skip())
+    else:
+        if not ref_audio:
+            raise ValueError('Upload or record reference audio first.')
+        if include_transcript and not (ref_transcript or '').strip():
+            raise ValueError('Enter the exact reference transcript, or turn off Include reference transcript.')
+        if mode == 'single':
+            result = clone_reference_selected(token, ref_audio, ref_transcript, include_transcript,
+                                              text, instruction, language, seed, release, request, *settings)
+            return (gr.update(value=result[0], visible=bool(result[0])),
+                    gr.update(value=result[1], visible=bool(result[1])), result[2], *result[3:6],
+                    *result[8:13], None, gr.update(visible=False), '',
+                    gr.update(value=None, visible=False), result[6], result[7], result[13], result[14])
+    from batch_generation import run_batch, validate_entries
+    validate_entries(rows)
+    saved_update = saved_status = selected_update = selected_info = gr.skip()
+    if workflow == 'clone':
+        try:
+            path, message = save_voice(ref_audio, ref_transcript if include_transcript else '',
+                                       not include_transcript, release_after=False)
+            saved_update, saved_status = gr.update(value=path, visible=True), gr.update(value=message, visible=True)
+            from gradio.processing_utils import save_file_to_cache
+            from gradio.utils import get_upload_folder
+            selected = save_file_to_cache(path, cache_dir=get_upload_folder())
+            if SELECTION.commit(voice_session(request), token, selected):
+                selected_update = gr.update(value=selected)
+                selected_info = 'Active voice: ' + Path(path).name + '\nNewly cloned reference selected for future commentary.'
+        except Exception:
+            if release:
+                release_model()
+            raise
+    result = run_batch(rows,
+        generate_clip=(lambda paragraph, index: generate_design(paragraph, description, language, seed,
+                          False, *settings)[0]) if workflow == 'design' else
+                      (lambda paragraph, index: generate(path, paragraph, instruction, language, seed,
+                          False, not include_transcript, *settings)[0]),
+        output_root=OUTPUTS, lock=LOCK, release_after=release, release_model=release_model,
+        on_progress=lambda index, total, label: progress((index, total), desc=f'Generating clip {index+1}/{total} ({label})'))
+    for clip in result['clips']:
+        authorize_generated_file(Path(clip['audio']))
+    if result['archive']:
+        authorize_generated_file(Path(result['archive']))
+    return (gr.update(value=None, visible=False), gr.update(value=None, visible=False), '', None, '', False,
+            gr.update(visible=False), gr.update(value=''), gr.update(value=None, visible=False),
+            gr.update(value='', visible=False), False, result, gr.update(visible=True), result['status'],
+            gr.update(value=result['archive'], visible=bool(result['archive'])),
+            saved_update, saved_status, selected_update, selected_info)
+
+
+def generate_workflow_ui(request: gr.Request, *args, progress=gr.Progress()):
+    try:
+        return generate_workflow_mode(*args, request=request, progress=progress)
+    except Exception as error:
+        updates = [gr.skip() for _ in range(19)]
+        updates[2] = gr.update(value='Generation failed: ' + str(error), visible=True)
+        return tuple(updates)
+
+
+def workflow_ready(workflow, mode, rows, voice, ref_audio, ref_transcript, include_transcript,
+                   description, text, busy=False, *settings):
+    if busy or workflow not in ('clone', 'design', 'generate'):
+        return False
+    if workflow == 'generate' and (not voice or not str(voice).lower().endswith('.pt')):
+        return False
+    if workflow == 'clone' and (not ref_audio or (include_transcript and not (ref_transcript or '').strip())):
+        return False
+    if workflow == 'design' and not (description or '').strip():
+        return False
+    try:
+        generation_options(settings)
+        if mode == 'batch':
+            from batch_generation import validate_entries
+            validate_entries(rows)
+        elif mode != 'single' or not isinstance(text, str) or not 1 <= len(text.strip()) <= 2000:
+            return False
+        return True
+    except (TypeError, ValueError, OverflowError):
+        return False
+
+
+def update_workflow_readiness(*args):
+    return gr.update(interactive=workflow_ready(*args))
+
+
+def workflow_started(workflow, request: gr.Request):
+    ticket = begin_clone_selection(request) if workflow == 'clone' else 0
+    return gr.update(interactive=False, value='Generating commentary...'), gr.update(value='', visible=False), True, ticket
+
+
+def workflow_completed(workflow, mode, rows, voice, ref_audio, ref_transcript, include_transcript,
+                       description, text, *settings):
+    return (gr.update(interactive=workflow_ready(workflow, mode, rows, voice, ref_audio, ref_transcript,
+                                                 include_transcript, description, text, False, *settings),
+                      value='Generate commentary'), gr.update(value='', visible=False), False)
+
+
 def commentary_ready(mode, rows, voice, text, busy=False, cloning=False, *settings):
     if busy or cloning or not voice or not str(voice).lower().endswith('.pt'):
         return False
@@ -710,25 +842,24 @@ def build_ui():
                                 ref_s, transcript_s, xvec_s = reference_controls()
                                 save = gr.Button('Save voice file', visible=False)
                                 gr.Markdown('Save a voice and preview your commentary in one step.', elem_classes=['section-note'])
-                                direct_preview = gr.Button('Clone reference & generate commentary', elem_classes=['primary-action'], elem_id='clone-reference-commentary', interactive=False)
+                                direct_preview = gr.Button('Clone reference & generate commentary', elem_classes=['primary-action'], elem_id='clone-reference-commentary', interactive=False, visible=False)
                                 ref_s.change(fn=None, inputs=ref_s, js="(audio) => { window.voiceStudioReferenceReady = !!audio; document.getElementById('production-workspace')?.dispatchEvent(new Event('input',{bubbles:true})); }", api_name=False)
                                 saved = gr.File(label='Saved voice file (.pt)', interactive=False, height=85, visible=False)
                                 save_status = gr.Markdown(value='', visible=False, elem_classes=['studio-output-status'], sanitize_html=True)
                             with gr.Column(elem_id='design-inputs'):
                                 gr.Markdown('## Design a voice')
                                 gr.Markdown('Describe a new voice and create a sample to review. Each generation can vary.', elem_classes=['section-note'])
-                                design_text = gr.Textbox(label='Preview text', lines=4, value="It's in the top drawer... wait, it's empty? No way, that's impossible! I'm sure I put it there!")
-                                design_language = gr.Dropdown(LANGUAGES, value='Auto', label='Language')
                                 design_description = gr.Textbox(label='Voice design instruction', lines=3, value='Speak in an incredulous tone, but with a hint of panic beginning to creep into your voice.')
-                                design_seed, design_release, _, design_settings = generation_settings_controls(include_identity=False)
-                                design_button = gr.Button('Design voice & preview', elem_classes=['primary-action'], elem_id='design-voice-preview')
                         with gr.Column(scale=1, min_width=340, elem_classes=['studio-panel']):
-                            gr.Markdown('## Load voice & generate')
-                            gr.Markdown('Use an existing .pt voice to create commentary.', elem_classes=['section-note'])
-                            voice = gr.File(label='Voice file (.pt)', file_types=['.pt'], type='filepath', height=130, elem_classes=['studio-voice-input'])
-                            info = gr.Markdown(value='', elem_classes=['studio-output-status'], elem_id='selected-voice-status', sanitize_html=True)
+                            gr.Markdown('## Generate')
+                            gr.Markdown('Write one commentary or create timestamped clips with the selected workflow.', elem_classes=['section-note'])
+                            with gr.Column(elem_id='saved-voice-inputs'):
+                                gr.Markdown('Use an existing .pt voice to create commentary.', elem_classes=['section-note'])
+                                voice = gr.File(label='Voice file (.pt)', file_types=['.pt'], type='filepath', height=130, elem_classes=['studio-voice-input'])
+                                info = gr.Markdown(value='', elem_classes=['studio-output-status'], elem_id='selected-voice-status', sanitize_html=True)
+                            workflow = gr.Textbox(value='clone', label='Workflow mode', elem_id='workflow-mode')
                             clone_busy=gr.State(False)
-                            text, instruction, language, seed, release, identity, button, settings, commentary_mode, clip_entries = compose_controls(batch=True, clone_button=direct_preview,clone_busy=clone_busy)
+                            text, instruction, language, seed, release, identity, button, settings, commentary_mode, clip_entries = compose_controls(batch=True)
                     with gr.Column(scale=1, min_width=0, elem_classes=['studio-panel','result-panel'], elem_id='listen-panel'):
                         generation_busy=gr.State(False)
                         generation_notice = gr.HTML('',visible=False,elem_id='generation-notice')
@@ -758,15 +889,22 @@ def build_ui():
                 preview_state = gr.State(None)
                 preview_transcript = gr.Textbox(visible=False)
                 bind_busy_action(save,save_voice_display,[ref_s,transcript_s,xvec_s],[saved,save_status],'Save voice file','Saving voice...',1)
-                bind_busy_action(design_button,design_submission,[design_text,design_description,design_language,design_seed,design_release,*design_settings],
-                    [audio,download,status,preview_state,preview_transcript,preview_confirm,preview_actions,correction,preview_file,preview_status,use_correction],
-                    'Design voice & preview','Designing voice...',2)
                 voice.upload(select_uploaded_voice,[voice],[info],api_name='inspect_voice',queue=False)
                 voice.clear(select_uploaded_voice,[voice],[info],api_name=False,queue=False)
                 use_correction.input(lambda: False, outputs=preview_confirm, api_name=False, queue=False)
                 correction.input(lambda: False, outputs=preview_confirm, api_name=False, queue=False)
-                button.click(generation_started_with_state, outputs=[button,generation_notice,generation_busy],queue=False,api_name=False).then(generate_commentary_ui, [commentary_mode,clip_entries,voice,text,instruction,language,seed,release,identity,*settings], [audio,download,status,preview_state,preview_transcript,preview_confirm,preview_actions,correction,preview_file,preview_status,use_correction,batch_result,batch_panel,batch_status,batch_zip], api_name='generate_commentary', concurrency_limit=1,show_progress='full').then(generation_completed,inputs=[commentary_mode,clip_entries,voice,text,clone_busy,*settings],outputs=[button,generation_notice,generation_busy],queue=False,api_name=False)
-                gr.on(triggers=[voice.change,text.change,clip_entries.change,commentary_mode.change,clone_busy.change,generation_busy.change]+[control.change for control in settings],fn=update_generate_readiness,inputs=[commentary_mode,clip_entries,voice,text,generation_busy,clone_busy,*settings],outputs=button,queue=False,api_name=False)
+                workflow_ticket = gr.State(0)
+                button.click(workflow_started, inputs=workflow, outputs=[button,generation_notice,generation_busy,workflow_ticket],queue=False,api_name=False,
+                    js="(workflow) => document.querySelector('#voice-mode-tabs button[aria-pressed=\"true\"]')?.dataset.voiceMode || workflow").then(
+                    generate_workflow_ui,
+                    [workflow,commentary_mode,clip_entries,workflow_ticket,ref_s,transcript_s,xvec_s,design_description,voice,text,instruction,language,seed,release,identity,*settings],
+                    [audio,download,status,preview_state,preview_transcript,preview_confirm,preview_actions,correction,preview_file,preview_status,use_correction,batch_result,batch_panel,batch_status,batch_zip,saved,save_status,voice,info],
+                    api_name='generate_commentary', concurrency_limit=1,show_progress='full',
+                    js="(...args) => { args[0] = document.querySelector('#voice-mode-tabs button[aria-pressed=\"true\"]')?.dataset.voiceMode || args[0]; return args; }").then(
+                    workflow_completed,inputs=[workflow,commentary_mode,clip_entries,voice,ref_s,transcript_s,xvec_s,design_description,text,*settings],
+                    outputs=[button,generation_notice,generation_busy],queue=False,api_name=False)
+                gr.on(triggers=[workflow.change,voice.change,ref_s.change,transcript_s.change,xvec_s.change,design_description.change,text.change,clip_entries.change,commentary_mode.change,generation_busy.change]+[control.change for control in settings],
+                    fn=update_workflow_readiness,inputs=[workflow,commentary_mode,clip_entries,voice,ref_s,transcript_s,xvec_s,design_description,text,generation_busy,*settings],outputs=button,queue=False,api_name=False)
                 # Preserve the existing single-clip API for integrations.
                 legacy_generate = gr.Button(visible=False)
                 legacy_generate.click(generate_preview_atomic, [voice,text,instruction,language,seed,release,identity,*settings], [audio,download,status,preview_state,preview_transcript,preview_confirm,preview_actions,correction,preview_file,preview_status,use_correction], api_name='generate', concurrency_limit=1)
@@ -799,7 +937,7 @@ def build_ui():
             voice_folder=gr.Button(str(VOICES),elem_classes=['storage-folder-button'])
             storage_status=gr.Markdown('',elem_classes=['studio-output-status'])
 
-            gr.Markdown('Generation settings are per workflow. GPU memory release and the random seed are inside each Generation settings section. Click a storage directory to browse local folders and choose its replacement. Choices persist after restart and affect future saves only; existing files are never moved. Checkpoint paths stay read-only. Switching between Base and VoiceDesign releases the previous model first.')
+            gr.Markdown('Commentary, language, and generation settings are shared across Clone, Design, and Generate. GPU memory release and the random seed are inside Generation settings. Click a storage directory to browse local folders and choose its replacement. Choices persist after restart and affect future saves only; existing files are never moved. Checkpoint paths stay read-only. Switching between Base and VoiceDesign releases the previous model first.')
         with gr.Accordion('Storage & GPU help', open=False, elem_classes=['generation-settings','studio-help']):
             gr.Markdown('**Compare delivery:** try an empty instruction, then the same text and seed with a direction.\n\n**Local storage:** audio and settings are in `Outputs`; saved voices are in `Voices`.\n\n**GPU memory:** stop other Qwen servers before generating. Closing their tabs does not unload models.')
         with gr.Accordion('Use via API', open=False, elem_classes=['generation-settings','studio-help','studio-utility-section'], elem_id='inline-api-section') as api_section:

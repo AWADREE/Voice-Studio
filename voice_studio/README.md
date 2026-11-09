@@ -25,6 +25,10 @@ Base does not expose a supported plain-text instruction interface. Its optional 
 
 See [VOICE-DESIGN-PARITY.md](VOICE-DESIGN-PARITY.md) for the reference GUI field audit and workflow details.
 
+## Shared commentary workflow
+
+Choose Clone, Design, or Generate at the top. The central Generate panel keeps the same commentary text, timestamped paragraphs, language, seed, and sampling settings when you switch modes. Clone needs reference audio and an optional exact reference transcript; its Generate action saves one reusable Base `.pt` voice prompt and uses it for the single take or all timestamped clips. Design needs a voice design instruction; its Generate action uses the VoiceDesign checkpoint for the single take or each timestamped clip. Generate uses an existing `.pt` voice file. The `.pt` picker appears only in Generate mode. All three modes use the same playback and export panel. Timestamp labels identify separate clips and do not insert silence. A single Design preview can be saved as a Base voice prompt after listening and confirming or correcting its transcript.
+
 ## Theme
 The public distribution includes our generated night-sky artwork and matching animated stars, authorized by the project owner for publication. Asset URLs resolve from the checkout, so no private local overrides are required. Sora and IBM Plex Sans font licenses are in assets/. The microphone app icon is a locally authored geometric design. See ASSET-PROVENANCE.md.
 
