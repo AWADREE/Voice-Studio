@@ -143,7 +143,7 @@ class VoiceDesignTests(unittest.TestCase):
         labels = [components[i]['props'].get('label') for i in design['inputs']]
         self.assertEqual(labels[:15], ['Workflow mode',None,None,None,'Reference audio','Reference transcript','Include reference transcript','Voice design instruction','Voice file (.pt)','Commentary text','Delivery instruction (optional)','Language','Seed','Release GPU memory after generation','Use voice identity only'])
         self.assertEqual(labels[15:], ['Maximum new tokens','Temperature','Top-k','Top-p','Repetition penalty','Enable speech sampling','Subtalker temperature','Subtalker top-k','Subtalker top-p','Enable subtalker sampling'])
-        self.assertEqual(len(design['outputs']), 19)
+        self.assertEqual(len(design['outputs']), 17)
         self.assertTrue(any(c['props'].get('elem_id') == 'design-inputs' for c in cfg['components']))
         self.assertEqual(sum(label == 'Preview text' for label in labels), 0)
         self.assertEqual(sum(label == 'Voice design instruction' for label in labels), 1)

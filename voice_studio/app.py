@@ -757,9 +757,9 @@ def generate_workflow_mode(workflow, mode, rows, token, ref_audio, ref_transcrip
 
 def generate_workflow_ui(request: gr.Request, *args, progress=gr.Progress()):
     try:
-        return generate_workflow_mode(*args, request=request, progress=progress)
+        return generate_workflow_mode(*args, request=request, progress=progress)[:-2]
     except Exception as error:
-        updates = [gr.skip() for _ in range(19)]
+        updates = [gr.skip() for _ in range(17)]
         updates[2] = gr.update(value='Generation failed: ' + str(error), visible=True)
         return tuple(updates)
 
@@ -959,7 +959,7 @@ def build_ui():
                     js="(workflow) => document.querySelector('#voice-mode-tabs button[aria-pressed=\"true\"]')?.dataset.voiceMode || workflow").then(
                     generate_workflow_ui,
                     [workflow,commentary_mode,clip_entries,workflow_ticket,ref_s,transcript_s,xvec_s,design_description,voice,text,instruction,language,seed,release,identity,*settings],
-                    [audio,download,status,preview_state,preview_transcript,preview_confirm,preview_actions,correction,preview_file,preview_status,use_correction,batch_result,batch_panel,batch_status,batch_zip,saved,save_status,voice,info],
+                    [audio,download,status,preview_state,preview_transcript,preview_confirm,preview_actions,correction,preview_file,preview_status,use_correction,batch_result,batch_panel,batch_status,batch_zip,saved,save_status],
                     api_name='generate_commentary', concurrency_limit=1,show_progress='full',
                     js="(...args) => { args[0] = document.querySelector('#voice-mode-tabs button[aria-pressed=\"true\"]')?.dataset.voiceMode || args[0]; return args; }").then(
                     workflow_completed,inputs=[workflow,commentary_mode,clip_entries,voice,ref_s,transcript_s,xvec_s,design_description,text,*settings],
