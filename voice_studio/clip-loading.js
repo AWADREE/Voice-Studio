@@ -1,38 +1,46 @@
 () => {
   if(window.voxoverClipLoading)return;
   window.voxoverClipLoading=true;
-  let marked=null;
-  let operation=null,startedAt=0,timer=null;
+  let marked=new Set(),operation=null,startedAt=0,timer=null;
   function updateElapsed(){
-    const label=marked?.querySelector('.clip-pending-elapsed');
     const text='processing | '+((Date.now()-startedAt)/1000).toFixed(1)+'s';
-    if(label && label.textContent!==text)label.textContent=text;
+    for(const node of marked){
+      const label=node.querySelector('.clip-pending-elapsed');
+      const value=node.getAttribute?.('data-loading-state')==='queued'?'Waiting for earlier clips':text;
+      if(label && label.textContent!==value)label.textContent=value;
+    }
   }
   function refresh(){
-    const pending=window.voxoverGenerationGuard?.pending;
-    const id=pending && pending!=='full'?pending:null;
+    const guard=window.voxoverGenerationGuard,metadata=window.voxoverBatchMetadata;
+    const streaming=guard?.streaming?.();
+    const id=streaming?metadata.active_id:guard?.pending && guard.pending!=='full'?guard.pending:null;
     if(id!==operation){
       if(timer!==null){clearInterval(timer);timer=null;}
       operation=id;startedAt=Date.now();
       if(id)timer=setInterval(updateElapsed,100);
     }
-    const current=id?document.getElementById('generated-clip-'+id):null;
-    if(marked && marked!==current){
-      marked.removeAttribute('data-regenerating');
-      marked.querySelector('.batch-audio')?.removeAttribute('aria-busy');
+    const current=new Set();
+    const ids=streaming?metadata.pending_ids||[]:id?[id]:[];
+    for(const pendingId of ids){
+      const card=document.getElementById('generated-clip-'+pendingId);
+      if(card){
+        current.add(card);card.setAttribute('data-regenerating','true');
+        card.setAttribute('data-loading-state',pendingId===id?'active':'queued');
+        card.querySelector('.batch-audio')?.setAttribute('aria-busy','true');
+        const label=card.querySelector('.progress-level-inner');
+        if(label){const text=streaming?(pendingId===id?'Generating clip...':'Clip queued'):'Regenerating clip...';if(label.textContent!==text)label.textContent=text;}
+      }
     }
-    marked=current;
-    if(marked){
-      marked.setAttribute('data-regenerating','true');
-      // Only the old player is busy. Keep the sibling live status outside that
-      // region so assistive technology can announce generation immediately.
-      marked.querySelector('.batch-audio')?.setAttribute('aria-busy','true');
+    for(const node of document.querySelectorAll?.('#clip-placeholders .clip-empty-player[data-loading-state="active"], #clip-placeholders .clip-empty-player[data-loading-state="queued"]')||[])current.add(node);
+    for(const node of marked)if(!current.has(node)){
+      node.removeAttribute('data-regenerating');node.removeAttribute('data-loading-state');
+      node.querySelector('.batch-audio')?.removeAttribute('aria-busy');
     }
-    if(id)updateElapsed();
-    // Existing audio remains valid until replacement succeeds. Play all may
-    // include the old target and can restart the sequence throughout generation.
+    marked=current;updateElapsed();
   }
   window.addEventListener('voxover-operation',refresh);
+  window.addEventListener('voxover-batch',refresh);
+  window.addEventListener('voxover-aligned',refresh);
   new MutationObserver(refresh).observe(document.getElementById('listen-panel'),{subtree:true,childList:true});
   refresh();
 }

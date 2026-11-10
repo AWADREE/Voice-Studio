@@ -64,3 +64,17 @@ guard.confirmAction(options);dialog.close();assert.equal(confirmations,0,'Escape
 guard.confirmAction(options);confirmControl.result.click();assert.equal(confirmations,1);confirmControl.result.click();assert.equal(confirmations,1,'repeat confirmation cannot dispatch twice');
 assert.equal(stopped,3,'only confirmed full generation can stop current playback');
 console.log('PASS shared replacement modal cancel, Escape, focus return, duplicate open and duplicate confirm');
+
+window.voxoverBatchMetadata={batch_id:'old',streaming:true,ids:['done'],pending_ids:['later']};
+guard.start('full');assert(!guard.enqueue('done',()=>jobs.push('stale')),'stale pre-start metadata cannot enqueue');
+window.voxoverBatchMetadata={batch_id:'new',streaming:true,ids:['done'],pending_ids:['later']};
+assert(guard.enqueue('done',()=>jobs.push('stream-done'),{batch_id:'new'}));
+assert(!guard.enqueue('later',()=>jobs.push('unfinished')));
+assert(guard.enqueue('added',()=>jobs.push('stream-added'),{batch_id:'new'}));
+assert(!guard.enqueue('done',()=>jobs.push('duplicate')));
+assert.equal(guard.pending,'full');assert(!jobs.includes('stream-done'));
+window.voxoverBatchMetadata={...window.voxoverBatchMetadata,streaming:false,pending_ids:[]};
+assert.equal(guard.pending,'full','final metadata alone cannot release FIFO');
+guard.finish();assert.equal(guard.pending,'done');assert.equal(jobs.at(-1),'stream-done');
+guard.finish();assert.equal(guard.pending,'added');assert.equal(jobs.at(-1),'stream-added');guard.finish();
+console.log('PASS fresh-stream-only FIFO, unfinished and duplicate rejection, final metadata holds until finish');

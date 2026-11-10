@@ -19,7 +19,7 @@ const single=target({querySelector(s){return s==='[data-field="seed"]'?singleSee
 const panel={querySelector(s){return s.includes('checkbox')?checkbox:shared;}};
 const element={querySelector(s){return s==='.clip-list'?list:add;}};
 const window=target();
-const document={createElement:makeRow,getElementById(id){return id==='generate-panel'?panel:id==='single-clip-seed'?single:null;}};
+const document={querySelector:()=>shared,createElement:makeRow,getElementById(id){return id==='generate-panel'?panel:id==='single-clip-seed'?single:null;}};
 let random=7;
 const props={value:[{id:'one',minutes:0,seconds:0,text:'First'},{id:'two',minutes:0,seconds:1,text:'Second'}]};
 const events=[];
@@ -37,7 +37,7 @@ const toggle=checked=>{checkbox.checked=checked;checkbox.dispatchEvent({type:'ch
 const edit=(input,value)=>{input.value=String(value);input.dispatchEvent({type:'input',bubbles:true});};
 const batch=()=>api.prepare(['generate','batch',props.value,...Array(9).fill(null),42]);
 const take=(workflow='generate')=>api.prepare([workflow,'single',props.value,...Array(9).fill(null),42]);
-assert(!shared.disabled);assert(singleControls.hidden);assert(rows.every(r=>r.querySelector('.clip-seed-controls').hidden));
+assert(!shared.disabled);assert(singleControls.hidden);assert(rows.every(r=>!r.querySelector('.clip-seed-controls').hidden),'draft seed controls stay available before generation');
 toggle(true);
 assert(shared.disabled);assert.equal(shared.value,'42');assert(!singleControls.hidden);
 assert(rows.every(r=>!r.querySelector('.clip-seed-controls').hidden));
@@ -67,7 +67,7 @@ edit(seed(0),808);toggle(false);assert(!shared.disabled);assert.equal(shared.val
 assert(rows.every(r=>!r.querySelector('.clip-seed-controls').hidden),'fixed overrides remain visible after Randomize is switched off');
 request=batch();assert.equal(request[2][0].seed,808);assert.equal(take()[12],42,'Randomize off restores shared seed for singles');
 const offSeeds=Array.from(request[2],r=>r.seed);assert.deepEqual(Array.from(batch()[2],r=>r.seed),offSeeds,'off does not randomize batch overrides');
-click(add);assert.equal(props.value.length,3);assert(!('seed' in props.value[2]),'new off-mode clip inherits shared seed');
+click(add);assert.equal(props.value.length,3);assert.equal(props.value[2].seed,42,'new off-mode clip displays its inherited shared seed');
 edit(seed(0),999);toggle(true);assert.equal(Number(seed(0).value),999,'enabling preserves manual draft');assert('seed' in props.value[2]);
 assert(!rows[2].querySelector('.clip-seed-controls').hidden);
 random=4294967295;assert.equal(vm.runInContext('newClipSeed(4294967295,[0,1])',context),2);

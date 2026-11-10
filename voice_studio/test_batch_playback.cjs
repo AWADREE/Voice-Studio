@@ -107,3 +107,14 @@ decodeReset.currentTime=0;decodeReset.paused=true;decodeReset.emit('timeupdate')
 // Stop cancels all source recovery, even between the zero reset and load event.
 nodes=[stableCard(player('stop-reset'),'a')];api.play();const stopReset=nodes[0].media;stopReset.currentTime=12;stopReset.emit('timeupdate');stopReset.currentTime=0;stopReset.paused=true;stopReset.emit('timeupdate');stopReset.emit('pause');api.stop();stopReset.readyState=0;stopReset.emit('emptied');stopReset.currentSrc='blob:stopped-new';stopReset.readyState=4;stopReset.emit('loadedmetadata');assert(stopReset.paused);api.stop();
 console.log('PASS post-metadata waveform reset and Stop during source replacement');
+// Streamed full-batch output remains playable while new native cards arrive.
+function withId(node,id){node.closest=()=>({id,hidden:false,style:{gridRow:'2'}});return node;}
+window.voxoverGenerationGuard={pending:'full',streaming:()=>true};
+nodes=[withId(player('stream-first'),'stream-a')];api.play();
+const streamed=nodes[0];streamed.media.currentTime=3;streamed.media.emit('timeupdate');
+nodes.push(withId(player('stream-second'),'stream-b'));mutation();
+assert(!streamed.media.paused);assert.equal(streamed.media.currentTime,3);
+streamed.media.end();assert.deepStrictEqual(clicks.at(-1),['stream-second',0]);
+api.stop();const stoppedCount=clicks.length;
+nodes.push(withId(player('stream-third'),'stream-c'));mutation();assert.equal(clicks.length,stoppedCount,'new streamed cards must never undo Stop');
+console.log('PASS full-batch streamed playback, sequence extension, playhead retention and Stop preservation');

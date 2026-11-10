@@ -2,7 +2,7 @@ const fs=require('fs'),vm=require('vm'),assert=require('node:assert/strict');
 let mutation,pending=null,active={},tick=null,clock=1000,cleared=0;
 const listeners={};
 const attributes=()=>({attributes:{},setAttribute(key,value){this.attributes[key]=value;},removeAttribute(key){delete this.attributes[key];}});
-const makeClip=()=>({...attributes(),media:attributes(),elapsed:{textContent:''},querySelector(selector){return selector==='.batch-audio'?this.media:this.elapsed;}});
+const makeClip=()=>({...attributes(),media:attributes(),elapsed:{textContent:''},querySelector(selector){return selector==='.batch-audio'?this.media:selector==='.clip-pending-elapsed'?this.elapsed:null;}});
 const first=makeClip(),second=makeClip(),replacement=makeClip();
 active={'generated-clip-first':first,'generated-clip-second':second};
 const playAll={disabled:false};
@@ -32,3 +32,18 @@ pending=null;playAll.disabled=true;pending='first';listeners['voxover-operation'
 const css=fs.readFileSync('theme.css','utf8');
 assert.match(css,/@media\(prefers-reduced-motion:reduce\)\{[^\n]*\.clip-pending-surface \.progress-bar\{animation-name:none;transform:translateX\(105%\)/,'reduced-motion fill must remain visible instead of pausing offscreen');
 console.log('PASS scoped loading, unaffected neighbors, pending replacement/rerender, success/failure cleanup, full-loader isolation, and Play all state restoration');
+
+window.voxoverGenerationGuard.streaming=()=>pending==='full'&&window.voxoverBatchMetadata?.streaming;
+window.voxoverBatchMetadata={streaming:true,pending_ids:['first','second'],active_id:'first'};pending='full';listeners['voxover-batch']();
+assert.equal(first.attributes['data-regenerating'],'true');assert.equal(replacement.attributes['data-loading-state'],'queued');
+window.voxoverBatchMetadata={streaming:true,pending_ids:['second'],active_id:'second'};listeners['voxover-batch']();
+assert.deepEqual(first.attributes,{},'completed clip becomes available before full finish');assert.equal(replacement.attributes['data-loading-state'],'active');
+window.voxoverBatchMetadata={streaming:false,pending_ids:[],active_id:null};listeners['voxover-batch']();assert.deepEqual(replacement.attributes,{});assert.equal(tick,null);
+console.log('PASS streaming active/queued overlays, immediate completed release and final cleanup');
+
+const topBusy=css.match(/#listen-top-controls>\.studio-audio-output:has\(>\.wrap:not\(\.hide\)\)\{([^}]+)\}/)[1];
+assert.match(topBusy,/border:0!important/,'total regeneration must not add a container border');
+const topWrap=css.match(/#listen-top-controls>\.studio-audio-output>\.wrap:not\(\.hide\)\{([^}]+)\}/)[1];
+assert.match(topWrap,/border:0!important/,'native top loading surface must not add a second border');
+assert.match(topWrap,/box-shadow:none!important/);
+console.log('PASS first/repeat native top loader keeps the same unbordered surface');

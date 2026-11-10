@@ -38,7 +38,7 @@ function row(data) {
   box.querySelector('.clip-regenerate').addEventListener('click', () => {
     const guard=window.voxoverGenerationGuard;
     if(!guard)return;
-    if(guard.pending==='full'||guard.pending===box.dataset.clipId||guard.position(box.dataset.clipId))return;
+    if((guard.pending==='full'&&!guard.canEnqueue?.(box.dataset.clipId))||guard.pending===box.dataset.clipId||guard.position(box.dataset.clipId))return;
     const input=box.querySelector('[data-field="seed"]');
     const id=box.dataset.clipId, metadata=window.voxoverBatchMetadata;
     const batch_id=metadata?.batch_id || null, replacing=!!metadata?.ids?.includes(id);
@@ -47,7 +47,7 @@ function row(data) {
         !window.voxoverBatchMetadata?.batch_id || window.voxoverBatchMetadata?.origin_draft_id===draftId) &&
       (!replacing || window.voxoverBatchMetadata?.ids?.includes(id));
     const submit=()=>{
-      if(!valid() || guard.pending==='full' || guard.pending===id || guard.position(id))return;
+      if(!valid() || (guard.pending==='full'&&!guard.canEnqueue?.(id)) || guard.pending===id || guard.position(id))return;
       const hasSeed=!!box.dataset.seedInitialized;
       if(hasSeed && (!input.reportValidity() || input.value==='')){
         const status=box.querySelector('.clip-operation-status');status.hidden=false;status.textContent='Enter a valid seed before generating this clip.';snapshot();return;
@@ -69,7 +69,7 @@ function row(data) {
   });
   box.querySelector('.clip-remove').addEventListener('click', () => {
     const guard=window.voxoverGenerationGuard;
-    if(guard?.pending==='full'||guard?.pending===box.dataset.clipId)return;
+    if((guard?.pending==='full'&&(!guard.streaming?.()||window.voxoverBatchMetadata?.pending_ids?.includes(box.dataset.clipId)))||guard?.pending===box.dataset.clipId)return;
     guard?.cancel(box.dataset.clipId);
     const next = box.nextElementSibling || box.previousElementSibling;
     box.dataset.removing='true'; snapshot(); (next?.querySelector('textarea') || add).focus();
@@ -92,12 +92,13 @@ function refreshRegeneration(){
     const active=pending===box.dataset.clipId, position=guard?.position(box.dataset.clipId)||0;
     const job=guard?.job(box.dataset.clipId);
     button.textContent=active?(generated?'Regenerating...':'Generating...'):position?`Queued ${position}`:(generated?'Regenerate':'Generate');
-    button.disabled=active||position>0||pending==='full';
+    const unfinished=pending==='full'&&(!guard.streaming?.()||window.voxoverBatchMetadata?.pending_ids?.includes(box.dataset.clipId));
+    button.disabled=active||position>0||unfinished;
     const seedInput=box.querySelector('[data-field="seed"]');
     seedInput.dataset.generationReadonly=String(active);
     seedInput.readOnly=active;
     box.querySelector('textarea').readOnly=active;
-    box.querySelector('.clip-remove').disabled=active||pending==='full';
+    box.querySelector('.clip-remove').disabled=active||unfinished;
     box.querySelector('.clip-seed-note').textContent=job?
       `${active?'Regenerating':`Queued ${position}`} with ${job.seed===undefined?'the shared seed':`seed ${job.seed}`}. New seed chooses the next take.${position?' Text and shared settings are read when this clip starts.':''}`:
       (window.voxoverSeedRandomizer?.enabled?'Randomize chooses a fresh seed per take. Edits and New seed apply to the next take.':'Overrides the shared seed for this clip. Use -1 for random.');
@@ -110,7 +111,8 @@ function refreshRegeneration(){
     if(window.voxoverSeedRandomizer?.enabled && !box.dataset.seedInitialized){
       initializeClipSeed(seedInput,otherSeeds(box));box.dataset.seedInitialized='true';initialized=true;
     }
-    box.querySelector('.clip-seed-controls').hidden=!box.dataset.seedInitialized;
+    box.querySelector('.clip-seed-controls').hidden=false;
+    if(!box.dataset.seedInitialized)seedInput.placeholder='Shared seed';
     box.querySelector('.clip-new-seed').setAttribute('aria-label',`New seed for paragraph ${index+1}`);
     box.querySelector('[data-field="seed"]').setAttribute('aria-label',`Seed for paragraph ${index+1}`);
   }
@@ -179,7 +181,17 @@ window.addEventListener('voxover-batch',refreshRegeneration);
 window.addEventListener('voxover-operation',refreshRegeneration);
 for(const data of props.value || []) row(data);
 snapshot();
-add.addEventListener('click', () => { if(list.children.length>=100)return; const added=row({minutes:0,seconds:props.value.length===0?1:0,text:''}); snapshot(); added.querySelector('textarea').focus({preventScroll:true}); });
+add.addEventListener('click', () => {
+  if(list.children.length>=100)return;
+  snapshot();
+  const previous=props.value.at(-1);
+  const start=previous?Number(previous.minutes)*60+Number(previous.seconds)+5:1;
+  const shared=document.querySelector('#generate-panel .shared-seed input')?.value;
+  const seed=shared!==undefined&&shared!==''?Number(shared):undefined;
+  const data={minutes:Math.floor(start/60),seconds:Number((start%60).toFixed(9)),text:''};
+  if(!window.voxoverSeedRandomizer?.enabled && Number.isSafeInteger(seed)&&seed>=-1)data.seed=seed;
+  const added=row(data);snapshot();added.querySelector('textarea').focus({preventScroll:true});
+});
 
 function bindImport(){
 const importer=document.getElementById('clip-import');

@@ -2,6 +2,9 @@
   if(window.voxoverGenerationGuard)return;
   let pending=null, activeJob=null, approved=false, lastHighlight='', confirmation=null, returnFocus=null;
   const queue=[];
+  let fullBaseline=null;
+  const streaming=()=>pending==='full' && window.voxoverBatchMetadata?.streaming===true && window.voxoverBatchMetadata!==fullBaseline;
+  const canEnqueue=id=>pending!=='full' || (streaming() && !window.voxoverBatchMetadata.pending_ids?.includes(id));
   const dialog=document.createElement('dialog');
   dialog.id='generation-replace-dialog';
   dialog.setAttribute('aria-labelledby','generation-replace-title');
@@ -18,7 +21,7 @@
     if(pending!==null && main())main().disabled=true;
     window.dispatchEvent(new Event('voxover-operation'));
   }
-  function start(id){pending=id;update();if(id==='full')window.voxoverBatchPlayback?.stop();}
+  function start(id){if(id==='full')fullBaseline=window.voxoverBatchMetadata;pending=id;update();if(id==='full')window.voxoverBatchPlayback?.stop();}
   function drain(){
     if(pending!==null)return;
     while(queue.length){
@@ -38,7 +41,7 @@
     pending=null;activeJob=null;drain();
   }
   function enqueue(id,run,data={},valid=()=>true){
-    if(pending==='full' || /Generating/.test(main()?.textContent || '') || pending===id || queue.some(job=>job.id===id))return false;
+    if(!canEnqueue(id) || (pending!=='full' && /Generating/.test(main()?.textContent || '')) || pending===id || queue.some(job=>job.id===id))return false;
     queue.push({...data,id,run,valid});
     if(pending===null)drain();else update();
     return true;
@@ -55,7 +58,7 @@
     dialog.querySelector('[data-confirm]').textContent=confirmLabel;
     dialog.showModal();return true;
   }
-  const api={busy,start,finish,enqueue,cancel,confirmAction,
+  const api={busy,start,finish,enqueue,cancel,confirmAction,streaming,canEnqueue,
     position:id=>queue.findIndex(job=>job.id===id)+1,
     job:id=>activeJob?.id===id?activeJob:queue.find(job=>job.id===id),
     get pending(){return pending;}};

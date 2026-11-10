@@ -116,7 +116,7 @@ def write_archive(clips, requested_clips, folder, *, complete=None):
 
 
 def run_batch(rows, *, generate_clip, output_root, lock, release_after=True,
-              release_model=lambda: None, on_progress=None):
+              release_model=lambda: None, on_progress=None, on_update=None, cancelled=None):
     """Generate in row order with one model lifetime, returning partial successes.
 
     ``generate_clip(text, zero_based_index)`` must return a WAV path and must not
@@ -128,12 +128,33 @@ def run_batch(rows, *, generate_clip, output_root, lock, release_after=True,
     if not lock.acquire(blocking=False):
         raise RuntimeError('Generation is already running. Wait for it to finish.')
     clips, error, folder, archive = [], None, None, None
+    batch_id, revision, failed_id = uuid.uuid4().hex, 0, None
+
+    def snapshot(streaming):
+        pending = entries[len(clips):] if streaming else []
+        return {'clips': [dict(clip) for clip in clips], 'archive': archive,
+                'error': error, 'status': f'Generated {len(clips)} of {len(entries)} clips.',
+                'batch_id': batch_id, 'revision': revision, 'streaming': streaming,
+                'requested_ids': [entry.get('id') for entry in entries],
+                'pending_ids': [entry.get('id') for entry in pending],
+                'active_id': pending[0].get('id') if pending else None,
+                'failed_id': failed_id, 'requested_clips': len(entries),
+                'complete': len(clips) == len(entries),
+                'batch_dir': str(folder) if folder else None}
+
+    def publish():
+        if on_update:
+            on_update(snapshot(True))
     try:
         root = Path(output_root)
         root.mkdir(parents=True, exist_ok=True)
         folder = root / ('batch-' + uuid.uuid4().hex)
         folder.mkdir(exist_ok=False)
+        publish()
         for position, entry in enumerate(entries):
+            if cancelled and cancelled():
+                error = 'Generation stopped before the remaining clips.'
+                break
             if on_progress:
                 on_progress(position, len(entries), entry['label'])
             try:
@@ -144,7 +165,10 @@ def run_batch(rows, *, generate_clip, output_root, lock, release_after=True,
                 target = folder / filename
                 shutil.copyfile(source, target)
                 clips.append({**entry, 'audio': str(target), 'filename': filename})
+                revision += 1
+                publish()
             except Exception as exc:
+                failed_id = entry.get('id')
                 error = f"Clip {entry['index']} ({entry['label']}) failed: {exc}"
                 break
     except Exception as exc:
@@ -179,7 +203,8 @@ def run_batch(rows, *, generate_clip, output_root, lock, release_after=True,
         status += ' ' + error + ' Completed clips are kept. Fix the issue, then generate only the remaining rows to avoid duplicate work.'
     else:
         status += ' Timestamps label the clips; they do not add silence.'
-    return {'clips': clips, 'archive': archive, 'error': error, 'status': status,
-            'batch_id': uuid.uuid4().hex, 'revision': 0,
-            'requested_clips': len(entries), 'complete': len(clips) == len(entries),
-            'batch_dir': str(folder) if folder else None}
+    revision += 1
+    result = dict(snapshot(False), status=status)
+    if on_update:
+        on_update(result)
+    return result

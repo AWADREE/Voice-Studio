@@ -57,6 +57,64 @@ class MinimumDurationTests(unittest.TestCase):
         ordered=[c['props'] for c in cfg['components']]
         button=next(i for i,p in enumerate(ordered) if p.get('value')=='Combine')
         self.assertEqual(ordered[button+1].get('elem_id'),'timeline-minimum-status')
+    def test_duration_default_rounds_up_and_rolls_into_minutes(self):
+        batch={'clips':[self.clip(101,59)]}
+        self.assertEqual(app.timeline_duration_default(batch),(1,1))
+        batch['clips'][0]=self.clip(100,59)
+        self.assertEqual(app.timeline_duration_default(batch),(1,0))
+        batch['clips'][0]=self.clip(1,3599.5)
+        self.assertEqual(app.timeline_duration_default(batch),(60,0))
+
+    def test_duration_default_tracks_current_rows_and_new_audio(self):
+        batch={'clips':[self.clip(101)],'requested_clips':1}
+        rows=[{'id':'1','minutes':1,'seconds':0,'text':'1'}]
+        self.assertEqual(app.timeline_duration_default(batch,rows),(1,2))
+        batch['clips'][0]=self.clip(350)
+        self.assertEqual(app.timeline_duration_default(batch,rows),(1,4))
+        rows[0]['seconds']=59
+        self.assertEqual(app.timeline_duration_default(batch,rows),(2,3))
+        rows[0]['seconds']=0
+        rows[0]['minutes']=0
+        self.assertEqual(app.timeline_duration_default(batch,rows),(0,4))
+
+    def test_duration_default_preserves_user_input_and_unavailable_timing(self):
+        batch={'clips':[self.clip(101)],'requested_clips':1}
+        self.assertEqual(app.timeline_duration_default(batch,edited=True),(gr.skip(),gr.skip()))
+        self.assertEqual(app.timeline_duration_default(None),(gr.skip(),gr.skip()))
+        self.assertEqual(app.timeline_duration_default({'clips':[{'audio':'missing.wav'}]}),(gr.skip(),gr.skip()))
+        rows=[{'id':'1','minutes':0,'seconds':0,'text':'changed'}]
+        self.assertEqual(app.timeline_duration_default(batch,rows),(gr.skip(),gr.skip()))
+
+    def test_duration_initializes_dict_and_state_inputs_without_combining(self):
+        batch={'clips':[self.clip(101,59)]}
+        for stateful in (False,True):
+            with gr.Blocks() as ui:
+                result=gr.State(None) if stateful else batch
+                rows=gr.HTML(None)
+                app.render_timeline_combine(result,gr.Textbox('generate'),gr.State('batch'),rows)
+            cfg=ui.get_config_file()
+            fields=[c for c in cfg['components'] if c['props'].get('label') in
+                    ('Total duration: minutes','Total duration: seconds')]
+            self.assertEqual([c['props']['value'] for c in fields],[0,0] if stateful else [1,1])
+            refresh=next(f for f in ui.fns.values() if f.fn and f.fn.__name__=='calculate_duration_candidate')
+            edited=refresh.inputs[2]
+            self.assertFalse(edited.value)
+            self.assertEqual(len(refresh.outputs),1)
+            apply=next(d for d in cfg['dependencies'] if d.get('js')==app.TIMELINE_DURATION_APPLY_JS)
+            self.assertEqual(apply['outputs'],[c['id'] for c in fields])
+            self.assertEqual(apply['inputs'][0],refresh.outputs[0]._id)
+            self.assertEqual(refresh.fn(batch,None,False),[1,1])
+            edit=next(f for f in ui.fns.values() if edited in f.outputs)
+            self.assertTrue(edit.fn())
+            dependency=next(d for d in cfg['dependencies'] if d['outputs']==[edited._id])
+            self.assertEqual(set(map(tuple,dependency['targets'])),{(c['id'],'input') for c in fields})
+            # A deliberate zero or cleared field triggers input, never inferred from
+            # its numeric value. Server-generated defaults use change, not input.
+            self.assertEqual(refresh.fn(batch,None,edit.fn()),[gr.skip(),gr.skip()])
+            self.assertEqual(dependency['js'],app.TIMELINE_DURATION_EDIT_JS)
+            css=Path(app.ROOT/'theme.css').read_text(encoding='utf-8-sig')
+            self.assertIn('#timeline-duration-fields > .form {gap:16px!important;}',css)
+
     def test_multiple_listen_skin_excludes_empty_shared_track(self):
         css=Path(app.ROOT/'theme.css').read_text(encoding='utf-8-sig')
         self.assertIn('#production-workspace.multiple-mode #listen-panel {background:transparent!important;',css)

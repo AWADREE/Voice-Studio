@@ -36,10 +36,10 @@ function editor(initial) {
 }
 let e=editor([]);
 e.add();assert.deepEqual(e.times(),[[0,1]],'the first manual row added to an empty list starts at 0:01');
-e.add();assert.deepEqual(e.times(),[[0,1],[0,0]],'later manual rows retain their existing zero default');
+e.add();assert.deepEqual(e.times(),[[0,1],[0,6]],'later manual rows advance five seconds');
 e.edit(0,7);e.window.dispatchEvent({type:'voxover-batch'});e.add();
-assert.deepEqual(e.times(),[[0,7],[0,0],[0,0]],'refreshing and adding cannot reset edited starts');
-e.remove(0);assert.deepEqual(e.times(),[[0,0],[0,0]],'removing the first row cannot retime later rows');
+assert.deepEqual(e.times(),[[0,7],[0,6],[0,11]],'refreshing and adding cannot reset edited starts');
+e.remove(0);assert.deepEqual(e.times(),[[0,6],[0,11]],'removing the first row cannot retime later rows');
 e.remove(0);e.remove(0);e.add();assert.deepEqual(e.times(),[[0,1]],'a new first row starts at one second after all clips are removed');
 e=editor([{minutes:0,seconds:1,text:''}]);e.split();
 assert.equal(e.imports['.clip-confirm'].hidden,true,'a pristine first row does not need replacement confirmation');
@@ -92,3 +92,27 @@ e.window.voxoverBatchMetadata={batch_id:'unrelated',ids:['other']};assert(!queue
 e.window.dispatchEvent({type:'voxover-clip-result',detail:{id:'new-b',status:'Generation failed: choose a valid .pt voice.'}});
 assert.equal(e.rows[1].querySelector('.clip-operation-status').textContent,'Generation failed: choose a valid .pt voice.');
 console.log('PASS standalone Generate, shared seed inheritance, draft queue continuity, replacement rejection, row-local error');
+
+// Manual rows inherit the current shared seed, but randomize allocates distinct drafts.
+e=editor([{id:'last',minutes:2,seconds:58,text:'Previous'}]);
+e.add();assert.deepEqual(e.times(),[[2,58],[3,3]]);
+assert.equal(e.props.value[1].seed,42);assert.equal(e.rows[1].querySelector('.clip-seed-controls').hidden,false);
+e.edit(1,57);e.add();assert.deepEqual(e.times(),[[2,58],[3,57],[4,2]]);
+e.window.voxoverSeedRandomizer={enabled:true};e.add();
+assert.notEqual(e.props.value[3].seed,42);assert.equal(e.rows[3].querySelector('.clip-seed-controls').hidden,false);
+console.log('PASS manual seed visibility/inheritance/randomize and edited preceding timestamp rollover');
+
+// Completed streaming rows can queue; unfinished rows and pre-start metadata cannot.
+e=editor([{id:'done',minutes:0,seconds:1,text:'Done',seed:5},{id:'waiting',minutes:0,seconds:6,text:'Waiting',seed:6}]);
+let streaming=false;const streamJobs=[];
+e.window.voxoverBatchMetadata={batch_id:'stream',streaming:true,ids:['done'],pending_ids:['waiting']};
+e.window.voxoverGenerationGuard={pending:'full',streaming:()=>streaming,canEnqueue:id=>streaming&&id!=='waiting',position:()=>0,job:()=>null,confirmAction:o=>confirmation=o,enqueue:(id,run,data,valid)=>streamJobs.push({id,run,data,valid})};
+confirmation=null;e.regenerate(0);assert.equal(confirmation,null);
+streaming=true;e.window.dispatchEvent({type:'voxover-batch'});
+assert.equal(e.rows[0].querySelector('.clip-regenerate').disabled,false);
+assert.equal(e.rows[1].querySelector('.clip-regenerate').disabled,true);
+assert.equal(e.rows[0].querySelector('.clip-remove').disabled,false);
+assert.equal(e.rows[1].querySelector('.clip-remove').disabled,true);
+e.regenerate(0);confirmation.action();assert.equal(streamJobs.length,1);assert.equal(streamJobs[0].data.batch_id,'stream');
+e.regenerate(1);assert.equal(streamJobs.length,1);assert.equal(e.triggered.length,0);
+console.log('PASS streaming row eligibility, guarded pre-start, removal lock and captured batch identity');

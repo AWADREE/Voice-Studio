@@ -10,6 +10,8 @@ class Node {
  remove(){this.parent.children=this.parent.children.filter(n=>n!==this);mutation?.();}
  setAttribute(name,value){this.attributes[name]=value;}
  addEventListener(name,fn){this.events[name]=fn;}
+ set innerHTML(value){this.html=value;this.parts={};writes++;}
+ querySelector(selector){return (this.parts??={})[selector]??=(new Node());}
  removeAttribute(name){if(name==='data-previous')delete this.dataset.previous;}
 }
 const workspace=new Node('production-workspace'),host=new Node(),add=new Node(),output=new Node('batch-output');
@@ -59,3 +61,14 @@ assert.deepEqual(cards,originals);assert.deepEqual(cards.map(r=>r.style.gridRow)
 mobile.matches=false;mobile.changed();flush();assert.deepEqual(cards.map(r=>r.style.gridRow),['4','3','2']);
 const callback=listeners.get('voxover-rows');vm.runInNewContext('('+source+')()',context);assert.equal(listeners.get('voxover-rows'),callback,'initialization is idempotent');
 console.log('PASS accessible collapse/count/track sizing, stable-ID alignment, new placeholders, orphan/undo/reorder, fade track retention, mobile pairing, native identity, and bounded mutation reconciliation');
+
+rows=[row('ready'),row('waiting'),row('later')];cards=[card('ready')];
+window.voxoverGenerationGuard={streaming:()=>true};
+window.voxoverBatchMetadata={streaming:true,pending_ids:['waiting','later'],active_id:'waiting'};change();
+const waiting=host.children.find(n=>n.dataset.clipId==='waiting'),later=host.children.find(n=>n.dataset.clipId==='later');
+assert.equal(waiting.dataset.loadingState,'active');assert.match(waiting.html,/clip-pending-surface/);
+assert.equal(later.dataset.loadingState,'queued');assert.match(later.querySelector('.progress-level-inner').textContent,/queued/);
+const ready=cards[0];cards.push(card('waiting'));window.voxoverBatchMetadata={streaming:true,pending_ids:['later'],active_id:'later'};change();
+assert(!host.children.includes(waiting));assert.equal(later.dataset.loadingState,'active');assert.equal(cards[0],ready);
+window.voxoverGenerationGuard.streaming=()=>false;change();assert.equal(later.dataset.loadingState,'empty');assert.match(later.textContent,/Not generated yet/);
+console.log('PASS in-place queued/active placeholders, native completed replacement and failure cleanup');

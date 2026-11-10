@@ -673,6 +673,8 @@ def commit_storage_picker(kind,path,request: gr.Request):
 
 
 def current_batch_timing(result, rows):
+    if (result or {}).get('streaming'):
+        raise ValueError('Wait for the running batch to finish before combining or setting timestamps.')
     from batch_generation import validate_entries
     entries = validate_entries(rows, validate_seeds=False)
     if not isinstance(result, dict) or not isinstance(result.get('clips'), list):
@@ -716,6 +718,8 @@ def prepare_clip_regeneration(result, rows, row_id, workflow, mode, voice, instr
                               language, seed, release, identity, *settings):
     if workflow != 'generate' or mode != 'batch':
         raise ValueError('Switch to Generate / Multiple to generate a paragraph.')
+    if (result or {}).get('streaming'):
+        raise ValueError('Wait for the running batch to finish before starting a queued clip.')
     from batch_generation import validate_entries, validate_seed
     # Check all identities, but do not require unrelated unfinished drafts to be valid.
     if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
@@ -863,6 +867,9 @@ def batch_editor_metadata(result):
     return {'batch_id': result.get('batch_id'), 'origin_draft_id': result.get('origin_draft_id'), 'ids': [clip['id'] for clip in result.get('clips', []) if clip.get('id')],
             'seeds': {clip['id']: clip['seed'] for clip in result.get('clips', []) if clip.get('id') and 'seed' in clip},
             'highlight_id': result.get('highlight_id'), 'timing': generated_timing_metadata(result),
+            'streaming': bool(result.get('streaming')), 'pending_ids': result.get('pending_ids', []),
+            'active_id': result.get('active_id'), 'requested_ids': result.get('requested_ids', []),
+            'failed_id': result.get('failed_id'),
             'version': f"{result.get('batch_id', '')}:{result.get('revision', 0)}"}
 
 
@@ -896,6 +903,37 @@ def timeline_minimum_status(result, rows=None):
         return 'Minimum unavailable: ' + str(error)
 
 
+def timeline_duration_default(result, rows=None, edited=False):
+    """Follow the current minimum until the user edits either duration field.
+
+    User input, even zero or an empty field, opts out for this UI session.
+    Unavailable timing leaves existing values and the last combined file alone.
+    """
+    if edited or not (result or {}).get('clips'):
+        return gr.skip(), gr.skip()
+    try:
+        from combine_clips import minimum_timeline_seconds
+        current = current_batch_timing(result, rows) if rows is not None else result
+        return divmod(minimum_timeline_seconds(current), 60)
+    except (ValueError, OSError, RuntimeError):
+        return gr.skip(), gr.skip()
+
+
+TIMELINE_DURATION_EDIT_JS = """() => {
+    const row = document.getElementById('timeline-duration-fields');
+    if (row) row.dataset.durationEdited = 'true';
+    return [];
+}"""
+TIMELINE_DURATION_APPLY_JS = """(candidate, minutes, seconds) => {
+    const row = document.getElementById('timeline-duration-fields');
+    if (!row || row.dataset.durationEdited === 'true' ||
+        !Array.isArray(candidate) || !candidate.every(Number.isInteger)) {
+        return [minutes, seconds];
+    }
+    return candidate;
+}"""
+
+
 def render_timeline_combine(result, workflow, mode, rows=None):
     stateful = isinstance(result, gr.State)
     if not stateful and not (result or {}).get('clips'):
@@ -903,9 +941,14 @@ def render_timeline_combine(result, workflow, mode, rows=None):
     with gr.Column(visible=not stateful, elem_id='timeline-combine', elem_classes=['timeline-combine']) as combine_panel:
         gr.Markdown('### Combine clips')
         gr.Markdown('Choose the full timeline length. Clips use the current timestamps in the editor; gaps are silent and overlaps play together. No clip is cut short. The last combined audio stays available until a new Combine succeeds.', elem_classes=['section-note'])
-        with gr.Row():
-            minutes = gr.Number(value=0, precision=0, minimum=0, maximum=1440, label='Total duration: minutes', elem_classes=['timeline-duration'])
-            seconds = gr.Number(value=0, precision=0, minimum=0, maximum=59, label='Total duration: seconds', elem_classes=['timeline-duration'])
+        initial_duration = (0, 0) if stateful else timeline_duration_default(result, getattr(rows, 'value', rows))
+        duration_edited = gr.State(False)
+        with gr.Row(elem_id='timeline-duration-fields'):
+            minutes = gr.Number(value=initial_duration[0] if isinstance(initial_duration[0], int) else 0, precision=0, minimum=0, maximum=1440, label='Total duration: minutes', elem_classes=['timeline-duration'])
+            seconds = gr.Number(value=initial_duration[1] if isinstance(initial_duration[1], int) else 0, precision=0, minimum=0, maximum=59, label='Total duration: seconds', elem_classes=['timeline-duration'])
+        gr.on(triggers=[minutes.input, seconds.input], fn=lambda: True,
+              outputs=duration_edited, js=TIMELINE_DURATION_EDIT_JS,
+              queue=False, show_progress='hidden', api_name=False)
         retime = gr.Button('Set timestamps back-to-back', elem_id='clip-retime')
         gr.HTML('<p role="status" aria-live="polite"></p>', elem_id='clip-timing-status')
         retime.click(fn=None, js="() => { const origin=document.getElementById('clip-retime'); window.voxoverClipEditor?.alignTimestamps(origin, text => { const status=document.querySelector('#clip-timing-status p'); if(status)status.textContent=text; }); }", api_name=False)
@@ -926,6 +969,17 @@ def render_timeline_combine(result, workflow, mode, rows=None):
         gr.on(triggers=[generated_state.change, editor_rows.change], fn=timeline_minimum_status,
               inputs=[generated_state, editor_rows], outputs=minimum_status,
               queue=False, trigger_mode='always_last', show_progress='hidden', api_name=False)
+        # Apply defaults in the browser only after checking for user input there.
+        # A server calculation already in flight must not overwrite a later edit.
+        duration_candidate = gr.JSON(None, visible=False)
+        def calculate_duration_candidate(batch, current_rows, edited):
+            return list(timeline_duration_default(batch, current_rows, edited))
+        gr.on(triggers=[generated_state.change, editor_rows.change], fn=calculate_duration_candidate,
+              inputs=[generated_state, editor_rows, duration_edited], outputs=duration_candidate,
+              queue=False, trigger_mode='always_last', show_progress='hidden', api_name=False)
+        duration_candidate.change(fn=None, js=TIMELINE_DURATION_APPLY_JS,
+              inputs=[duration_candidate, minutes, seconds], outputs=[minutes, seconds],
+              queue=False, show_progress='hidden', api_name=False)
         combine.click(start_combine,outputs=[combine,minutes,seconds,notice],queue=False,api_name=False).then(
             execute_combine,[minutes,seconds,workflow,mode,generated_state,editor_rows],[combined_audio,combined_download,notice],concurrency_limit=1,api_name=False,
             js="(...args) => { args[2] = document.querySelector('#voice-mode-tabs button[aria-pressed=\"true\"]')?.dataset.voiceMode || args[2]; args[3] = document.querySelector('#commentary-mode-tabs [role=\"tab\"][aria-selected=\"true\"]')?.textContent.trim() === 'Multiple' ? 'batch' : 'single'; return args; }").then(
@@ -1005,6 +1059,122 @@ def generate_workflow_ui(request: gr.Request, *args, progress=gr.Progress()):
         return tuple(updates)
 
 
+def streamed_batch_view(result, previous):
+    """Keep unreplaced takes available until a new full batch succeeds."""
+    previous = previous or {}
+    key = lambda clip: clip.get('id') or ('position', clip['index'])
+    by_id = {key(clip): clip for clip in result['clips']}
+    if result.get('streaming') or result.get('error'):
+        clips = [by_id.pop(key(clip), clip) for clip in previous.get('clips', [])]
+        clips.extend(by_id.values())
+        order = {key: index for index, key in enumerate(result.get('requested_ids', []))}
+        clips.sort(key=lambda clip: order.get(clip.get('id'), len(order)))
+        result = dict(result, clips=clips)
+        if previous.get('clips') and result.get('error'):
+            result['status'] += ' Unreplaced previous takes are also kept.'
+            # Publish a matching archive of the retained and newly completed takes.
+            # An archive failure must never roll back already published audio.
+            from batch_generation import write_archive
+            filenames = [clip['filename'] for clip in clips]
+            if len(set(filenames)) != len(filenames):
+                clips = [dict(clip, filename=f"{index:03d}-{clip['filename']}")
+                         for index, clip in enumerate(clips, 1)]
+                result['clips'] = clips
+            try:
+                result['archive'] = write_archive(clips, result['requested_clips'],
+                                                  result['batch_dir'], complete=False)
+            except Exception as error:
+                result['archive'] = None
+                result['status'] += ' Download-all archive unavailable: ' + str(error)
+    return result
+
+
+def generate_workflow_stream(request: gr.Request, *args, progress=gr.Progress()):
+    """Stream batch snapshots; keep the RLock/model lifetime on one worker thread.
+
+    Gradio may resume a synchronous iterator on different pool threads, so holding
+    an RLock across yields is unsafe. Only this worker owns inference and cleanup;
+    the consumer publishes immutable snapshots and exact file authorizations.
+    """
+    import contextvars
+    import queue
+    from batch_generation import run_batch, validate_entries, validate_seed
+    previous = args[-1] if len(args) == 16 + len(SETTING_DEFAULTS) else None
+    values = args[:-1] if len(args) == 16 + len(SETTING_DEFAULTS) else args
+    if len(values) < 2 or values[:2] != ('generate', 'batch'):
+        result = generate_workflow_ui(request, *args, progress=progress)
+        yield (*result, batch_editor_metadata(None) if result[11] is None else gr.skip())
+        return
+    latest = previous
+    try:
+        (_, _, rows, _, _, _, _, _, voice, _, instruction, language, seed,
+         release, identity, *settings) = values
+        generation_options(settings)
+        read_voice(voice)
+        entries = [{**entry, 'seed': validate_seed(entry.get('seed', seed))}
+                   for entry in validate_entries(rows)]
+        messages = queue.Queue()
+        cancelled = threading.Event()
+        def synthesize(paragraph, index):
+            audio, _, message = generate(voice, paragraph, instruction, language,
+                                         entries[index]['seed'], False, identity, *settings)
+            if not audio:
+                raise RuntimeError(message or 'Generation did not produce an audio file.')
+            return audio
+        def produce():
+            try:
+                run_batch(entries, generate_clip=synthesize,
+                    output_root=OUTPUTS, lock=LOCK, release_after=release, release_model=release_model,
+                    on_update=lambda result: messages.put(('result', result)), cancelled=cancelled.is_set)
+            except Exception as error:
+                messages.put(('error', error))
+            finally:
+                messages.put(('done', None))
+        context = contextvars.copy_context()
+        worker = threading.Thread(target=lambda: context.run(produce), name='voxover-batch', daemon=True)
+        worker.start()
+        try:
+            while True:
+                kind, result = messages.get()
+                if kind == 'done': break
+                if kind == 'error': raise result
+                latest = streamed_batch_view(result, previous)
+                for clip in latest['clips']:
+                    authorize_generated_file(Path(clip['audio']))
+                if latest['archive']: authorize_generated_file(Path(latest['archive']))
+                # Do not change the top native progress surface during intermediate
+                # updates. It remains an output of the running Gradio event.
+                outputs = [gr.skip() for _ in range(17)]
+                if not latest['streaming']:
+                    outputs[:11] = [gr.update(value=None, visible=False),
+                        gr.update(value=None, visible=False), '', None, '', False,
+                        gr.update(visible=False), gr.update(value=''), gr.update(value=None, visible=False),
+                        gr.update(value='', visible=False), False]
+                outputs[11:15] = [latest, gr.update(visible=True), latest['status'],
+                    gr.update(value=latest['archive'], visible=bool(latest['archive']))]
+                yield (*outputs, batch_editor_metadata(latest))
+                # Gradio marks output trackers as 'generating' after a yield and
+                # clears their content. Re-publish native progress only AFTER the
+                # snapshot reaches the client so the same top loader stays live.
+                if result.get('streaming'):
+                    completed = len(result['clips'])
+                    description = (f'Generating clip {completed+1}/{len(entries)} ({entries[completed]["label"]})'
+                                   if completed < len(entries) else 'Preparing download archive')
+                    progress((completed, len(entries)), desc=description)
+        finally:
+            # On disconnect/cancel, finish the current inference, persist its audio,
+            # stop before another row and release the lock in the owning thread.
+            cancelled.set()
+    except Exception as error:
+        outputs = [gr.skip() for _ in range(17)]
+        outputs[2] = gr.update(value='Generation failed: ' + str(error), visible=True)
+        if latest is not previous and latest:
+            latest = dict(latest, streaming=False, pending_ids=[], active_id=None,
+                          complete=False, error=str(error))
+            outputs[11] = latest
+        yield (*outputs, batch_editor_metadata(latest))
+
+
 def workflow_ready(workflow, mode, rows, voice, ref_audio, ref_transcript, include_transcript,
                    description, text, busy=False, *settings):
     if busy or workflow not in ('clone', 'design', 'generate'):
@@ -1034,6 +1204,12 @@ def update_workflow_readiness(*args):
 def workflow_started(workflow, request: gr.Request):
     ticket = begin_clone_selection(request) if workflow == 'clone' else 0
     return gr.update(interactive=False, value='Generating...'), gr.update(value='', visible=False), True, ticket
+
+
+def workflow_stream_started(workflow, request: gr.Request):
+    # A completed batch hides the single Audio component. Restore its native
+    # loading surface before the next queued event starts, retaining old media.
+    return (*workflow_started(workflow, request), gr.update(visible=True))
 
 
 def workflow_completed(workflow, mode, rows, voice, ref_audio, ref_transcript, include_transcript,
@@ -1217,17 +1393,24 @@ def build_ui():
                 voice.upload(select_uploaded_voice,[voice],[info],api_name='inspect_voice',queue=False)
                 voice.clear(select_uploaded_voice,[voice],[info],api_name=False,queue=False)
                 workflow_ticket = gr.State(0)
-                button.click(workflow_started, inputs=workflow, outputs=[button,generation_notice,generation_busy,workflow_ticket],queue=False,api_name=False,
+                button.click(workflow_stream_started, inputs=workflow, outputs=[button,generation_notice,generation_busy,workflow_ticket,audio],queue=False,api_name=False,
                     js="(workflow) => document.querySelector('#voice-mode-tabs button[aria-pressed=\"true\"]')?.dataset.voiceMode || workflow").then(
-                    generate_workflow_ui,
+                    generate_workflow_stream,
                     [workflow,commentary_mode,clip_entries,workflow_ticket,ref_s,transcript_s,xvec_s,design_description,voice,text,instruction,language,seed,release,identity,*settings,batch_result],
-                    [audio,download,status,preview_state,preview_transcript,preview_confirm,preview_actions,correction,preview_file,preview_status,use_correction,batch_result,batch_panel,batch_status,batch_zip,saved,save_status],
-                    api_name='generate_commentary', concurrency_limit=1,concurrency_id='studio-generation',show_progress='full',
+                    [audio,download,status,preview_state,preview_transcript,preview_confirm,preview_actions,correction,preview_file,preview_status,use_correction,batch_result,batch_panel,batch_status,batch_zip,saved,save_status,batch_metadata],
+                    api_name=False, concurrency_limit=1,concurrency_id='studio-generation',show_progress='full',
                     js="(...args) => { args[0] = document.querySelector('#voice-mode-tabs button[aria-pressed=\"true\"]')?.dataset.voiceMode || args[0]; args[1] = document.querySelector('#commentary-mode-tabs [role=\"tab\"][aria-selected=\"true\"]')?.textContent.trim() === 'Multiple' ? 'batch' : 'single'; return window.voxoverSeedRandomizer?.prepare(args) || args; }").then(
                     workflow_completed,inputs=[workflow,commentary_mode,clip_entries,voice,ref_s,transcript_s,xvec_s,design_description,text,*settings],
                     outputs=[button,generation_notice,generation_busy],queue=False,api_name=False).then(
                     batch_editor_metadata,inputs=batch_result,outputs=batch_metadata,queue=True,show_progress='hidden',api_name=False).then(
                     fn=None,js="() => window.voxoverGenerationGuard?.finish()",api_name=False)
+                # Keep the established non-streaming API's inputs/output arity.
+                api_generate_commentary = gr.Button(visible=False)
+                api_generate_commentary.click(generate_workflow_ui,
+                    [workflow,commentary_mode,clip_entries,workflow_ticket,ref_s,transcript_s,xvec_s,design_description,voice,text,instruction,language,seed,release,identity,*settings,batch_result],
+                    [audio,download,status,preview_state,preview_transcript,preview_confirm,preview_actions,correction,preview_file,preview_status,use_correction,batch_result,batch_panel,batch_status,batch_zip,saved,save_status],
+                    api_name='generate_commentary', concurrency_limit=1, concurrency_id='studio-generation',
+                    js="(...args) => window.voxoverSeedRandomizer?.prepare(args) || args")
                 regeneration_candidate = gr.State(None)
                 # Commit must be queued: Gradio's direct /run responses omit
                 # State.change notifications, so an unqueued commit leaves stale players.

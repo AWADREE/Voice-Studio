@@ -2,7 +2,7 @@
   if(window.voxoverBatchPlayback)return;
   let playing=false,index=-1,active=null,sequence=[],run=0,retry=null;
   const tracked=new Map();
-  const regenerating=()=>window.voxoverGenerationGuard?.pending && window.voxoverGenerationGuard.pending!=='full';
+  const regenerating=()=>window.voxoverGenerationGuard?.pending && (window.voxoverGenerationGuard.pending!=='full'||window.voxoverGenerationGuard.streaming?.());
   const allPlayers=()=>[...document.querySelectorAll('#batch-output .batch-audio')];
   const visible=player=>!player.closest?.('.batch-clip')?.hidden;
   const players=()=>allPlayers().filter(visible).sort((a,b)=>Number(a.closest?.('.batch-clip')?.style.gridRow||0)-Number(b.closest?.('.batch-clip')?.style.gridRow||0));

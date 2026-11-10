@@ -119,15 +119,17 @@ Replacing existing nonempty or retimed rows requires confirmation. Cancel keeps 
 
 Limits: **100 rows**, **1–2,000 characters per row**, whole minutes **0–9999**, and seconds **0 ≤ seconds < 60**, including fractional seconds. Duplicate timestamps are allowed.
 
+Manual **Add clip** starts at the preceding row's current timestamp plus five seconds, including minute rollover. The first row still starts at **00:01**. Every row exposes **Seed** and **New seed**; a blank seed inherits the shared seed until overridden.
+
 ### Generate and refine
 
-- The main **Generate** button synthesizes the current rows sequentially. Full replacement of existing Listen audio asks for confirmation.
+- The main **Generate** button synthesizes the current rows sequentially. The normal top Listen loader stays visible for initial and repeat runs. Each paragraph has its own queued/active loader in the existing audio slot, replaced by its playable clip as soon as it finishes. Full replacement of existing Listen audio asks for confirmation.
 - A row's **Generate** button creates only that take, even before a full batch exists. Added rows do not require regenerating the rest.
 - A generated row shows **Regenerate**. Confirm **Replace & regenerate** to create a replacement using its current text, voice, and settings. Cancel/Escape does not enqueue or synthesize it.
 - Successful replacements update that player, individual download, ZIP, and the source for future Combine operations. **Updated** highlights the replacement. Previous disk files are not overwritten.
-- Other rows can queue while a take is running. Jobs run in order. A queued request captures its seed when accepted; its text and shared settings are read when it starts. A removed queued row is canceled.
+- Completed rows can queue a confirmed regeneration while the rest of a full batch is running. Other rows can also queue while an individual take is running. Jobs run in order, after the current full batch finishes. A queued request captures its seed when accepted; its text and shared settings are read when it starts. A removed queued row is canceled.
 - Draft editing, Add clip, navigation, and future seed choices remain usable. The active row's text/seed are read-only; conflicting replacement/import actions wait for the queue. Do not mistake an editable future seed for the seed already captured by a queued take.
-- Errors appear beside the affected row and retain its previous audio. A failure does not stop later queued jobs. A first full batch stops after a failed clip and retains completed clips; a failed replacement run can retain the previous Listen batch instead.
+- Errors appear beside the affected row and retain its previous audio. A failure does not stop later queued jobs. A first full batch stops after a failed clip and retains completed clips; a failed full replacement keeps its newly completed takes and all unreplaced previous takes.
 
 Rows and their players are matched by stable identity. Removing/import-replacing a row does not erase its audio: unmatched players remain under **Previous clips**. After an import, **Undo last import** can restore the previous draft and its audio pairing. Manual removal has no undo control. There is no drag-to-reorder control.
 
@@ -169,6 +171,8 @@ This requires an idle queue and matching generated text/row identities. Missing 
 ![Multiple commentary and combined timeline controls](../docs/screenshots/multiple-workspace.jpg)
 
 The exported PCM-24 WAV places sources at their current timestamps. Gaps and trailing space are digital silence; overlaps sum together. Peaks above full scale trigger a disclosed whole-track gain reduction. Sources must have matching sample rate and channel count; no resampling, downmixing, or time stretching occurs.
+
+Total duration starts at the current minimum required length, rounded up to whole seconds, and follows valid clip/timestamp changes until you edit either duration field. Once edited, your value is preserved for the session, including against delayed automatic updates. The minutes and seconds fields have separate spacing.
 
 Total duration uses whole seconds, must be positive, and cannot exceed 24 hours, classic WAV size limits, or available disk space. Too-short requests report overruns and the minimum required length; no clip is truncated. A partial batch can combine available clips with an explicit generated/requested count.
 
