@@ -8,11 +8,11 @@ for(const labels of [{api:'Use via API',settings:'Settings'},{api:'Utiliser via 
  vm.runInNewContext('('+fs.readFileSync('inline-utilities.js','utf8')+')()',ctx);
  const initial=writes;callback();callback();assert.equal(frames.length,1);frames.shift()();assert.equal(writes,initial,'idle refresh must not write attributes');
  for(const kind of ['api','settings']){
-  headers[kind].click();window.voiceStudioUtilities.open(kind);assert.equal(triggers[kind].clicks,1);
+  headers[kind].click();window.voxoverUtilities.open(kind);assert.equal(triggers[kind].clicks,1);
   const d=node(),close=node();d.attrs={role:'dialog','aria-modal':'true'};d.querySelector=q=>q==='.banner-wrap > button'?close:null;dialogs.push(d);
   callback();frames.shift()();assert.equal(hosts[kind].child,undefined,'unidentified asynchronous root must not go to the wrong host');
   d.attrs['aria-label']=labels[kind];callback();frames.shift()();assert.strictEqual(hosts[kind].child,d);assert.equal(d.attrs.role,'region');assert(!('aria-modal' in d.attrs));assert.equal(body.style.overflow,'');
-  window.voiceStudioUtilities.open(kind);assert.equal(triggers[kind].clicks,1,'opening existing native utility must not toggle it off');
+  window.voxoverUtilities.open(kind);assert.equal(triggers[kind].clicks,1,'opening existing native utility must not toggle it off');
   close.listener({preventDefault(){},stopImmediatePropagation(){}});assert.equal(headers[kind].open,false);assert(headers[kind].focused);assert(d.isConnected,'collapse preserves native content');
   headers[kind].click();d.isConnected=false;callback();frames.shift()();assert.equal(headers[kind].open,false,'native recorder close syncs accordion');
  }

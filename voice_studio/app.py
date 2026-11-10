@@ -1,4 +1,4 @@
-"""Local Qwen Base clone and VoiceDesign studio. No vendor modifications."""
+"""Voxover: local voice cloning, design and commentary with Qwen3-TTS."""
 import os
 from pathlib import Path
 ROOT = Path(__file__).resolve().parent
@@ -19,11 +19,16 @@ import torch
 from qwen_tts import Qwen3TTSModel
 from qwen_tts.inference.qwen3_tts_model import VoiceClonePromptItem
 
-MODEL_REPO = Path(os.environ.get('VOICE_STUDIO_MODEL_CACHE', str(Path(os.environ.get('HF_HOME', str(Path.home()/'.cache'/'huggingface')))/'hub'/'models--Qwen--Qwen3-TTS-12Hz-1.7B-Base')))
-DESIGN_MODEL_REPO = Path(os.environ.get('VOICE_STUDIO_DESIGN_MODEL_CACHE', str(MODEL_REPO.parent/'models--Qwen--Qwen3-TTS-12Hz-1.7B-VoiceDesign')))
+def app_setting(name, default):
+    """Prefer Voxover configuration, retaining legacy launcher compatibility."""
+    return os.environ.get('VOXOVER_' + name) or os.environ.get('CADENTVOX_' + name) or os.environ.get('VOICE_STUDIO_' + name) or default
+
+
+MODEL_REPO = Path(app_setting('MODEL_CACHE', str(Path(os.environ.get('HF_HOME', str(Path.home()/'.cache'/'huggingface')))/'hub'/'models--Qwen--Qwen3-TTS-12Hz-1.7B-Base')))
+DESIGN_MODEL_REPO = Path(app_setting('DESIGN_MODEL_CACHE', str(MODEL_REPO.parent/'models--Qwen--Qwen3-TTS-12Hz-1.7B-VoiceDesign')))
 
 def ui_asset_text(name):
-    return (ROOT/name).read_text(encoding='utf-8-sig').replace('__VOICE_STUDIO_ASSETS__', '/gradio_api/file='+ (ROOT/'assets').as_posix())
+    return (ROOT/name).read_text(encoding='utf-8-sig').replace('__VOXOVER_ASSETS__', '/gradio_api/file='+ (ROOT/'assets').as_posix())
 from storage_locations import StorageLocations, require_local_ui, choose_folder
 STORAGE = StorageLocations(ROOT)
 OUTPUTS = STORAGE.values['output']
@@ -114,7 +119,7 @@ def load_model(kind='base'):
             return _model
         release_model()
     if not torch.cuda.is_available():
-        raise RuntimeError('CUDA GPU is unavailable. Voice Studio requires your NVIDIA GPU.')
+        raise RuntimeError('CUDA GPU is unavailable. Voxover requires your NVIDIA GPU.')
     free, total = torch.cuda.mem_get_info()
     if free < 6 * 1024**3:
         raise RuntimeError(f'Only {free/1024**3:.1f} GB of GPU memory is free. Close the other Qwen server processes first (closing the browser tab is not enough). This app has not loaded a model or stopped anything.')
@@ -154,9 +159,9 @@ def unload():
         return 'Model is in use. Wait for generation or voice saving to finish, then unload. Nothing was interrupted.'
     try:
         if _model is None:
-            return 'No model is loaded in this Voice Studio instance.'
+            return 'No model is loaded in this Voxover instance.'
         release_model()
-        return 'Model unloaded. Other Voice Studio instances were not changed.'
+        return 'Model unloaded. Other Voxover instances were not changed.'
     finally:
         LOCK.release()
 
@@ -452,9 +457,10 @@ def compose_controls(batch=False, clone_button=None, clone_busy=None):
         with gr.Tabs(elem_id='commentary-mode-tabs'):
             with gr.Tab('Single commentary') as single_tab:
                 text = gr.Textbox(label='Commentary text', lines=4, placeholder='Normal summon Dark Necromancer...')
+                gr.HTML(ui_asset_text('single-clip-seed.html'), elem_id='single-clip-seed', css_template=ui_asset_text('clip-editor.css'))
             with gr.Tab('Multiple') as batch_tab:
                 gr.Markdown('Each timestamp marks a clip start. Generate individual clips, then optionally combine them into one timeline with silent gaps. Shared settings above apply to every clip.', elem_classes=['section-note'])
-                entries = gr.HTML([{'minutes':0,'seconds':0,'text':''}], html_template=ui_asset_text('clip-editor.html'), js_on_load=ui_asset_text('paragraph-timing.js')+'\n'+ui_asset_text('clip-editor.js'), elem_id='clip-editor', css_template=ui_asset_text('clip-editor.css'))
+                gr.HTML(ui_asset_text('clip-import.html'), elem_id='clip-import', css_template=ui_asset_text('clip-editor.css'))
         if clone_button is not None:
             single_tab.select(lambda busy:('single',gr.skip() if busy else gr.update(interactive=True,value='Clone reference & generate commentary')), inputs=clone_busy,outputs=[mode,clone_button], queue=False, api_name=False)
             batch_tab.select(lambda busy:('batch',gr.skip() if busy else gr.update(interactive=False,value='Switch to Single commentary to clone')), inputs=clone_busy,outputs=[mode,clone_button], queue=False, api_name=False)
@@ -467,7 +473,9 @@ def compose_controls(batch=False, clone_button=None, clone_busy=None):
 
 def generation_settings_controls(include_identity=True):
     with gr.Accordion('Generation settings', open=False, elem_classes=['generation-settings']):
-        seed = gr.Number(value=42, precision=0, label='Seed', info='Use -1 for random. A fixed seed helps compare takes.')
+        with gr.Row(elem_classes=['shared-seed-row']):
+            seed = gr.Number(value=42, precision=0, label='Seed', info='Used for clips without their own seed. Use -1 for random.', elem_classes=['shared-seed'])
+            gr.Checkbox(value=False, label='Randomize', elem_classes=['seed-randomize'], info='Fresh seeds for each take. Per-clip edits apply to the next take.')
         release = gr.Checkbox(value=True, label='Release GPU memory after generation')
         identity = gr.Checkbox(value=False, label='Use voice identity only', info='Ignore reference delivery. This may reduce resemblance.', elem_id='base-identity-only') if include_identity else None
         gr.Markdown('### Speech sampling')
@@ -666,38 +674,226 @@ def commit_storage_picker(kind,path,request: gr.Request):
 
 def current_batch_timing(result, rows):
     from batch_generation import validate_entries
-    entries = validate_entries(rows)
+    entries = validate_entries(rows, validate_seeds=False)
     if not isinstance(result, dict) or not isinstance(result.get('clips'), list):
         raise ValueError('Generate clips before combining them.')
     if len(entries) != result.get('requested_clips', len(result['clips'])):
-        raise ValueError('The number of clips changed. Generate the clips again before combining.')
-    updated = []
+        raise ValueError('The number of clips changed. Generate the new or changed clips before combining.')
+    updated, seen = [], set()
+    by_id = {entry.get('id'): entry for entry in entries if entry.get('id')}
     for clip in result['clips']:
         index = clip.get('index')
-        if not isinstance(index, int) or index < 1 or index > len(entries):
-            raise ValueError('The generated clips no longer match the editor. Generate them again.')
-        entry = entries[index - 1]
+        if clip.get('id'):
+            if clip['id'] in seen:
+                raise ValueError('The generated paragraph identities are duplicated. Generate a new full batch.')
+            seen.add(clip['id'])
+            entry = by_id.get(clip['id'])
+            if entry is None:
+                raise ValueError('A generated paragraph was removed or replaced. Its audio was kept; generate a new full batch before combining.')
+        else:
+            if not isinstance(index, int) or isinstance(index, bool) or index < 1 or index > len(entries):
+                raise ValueError('The generated clips no longer match the editor. Generate them again.')
+            entry = entries[index - 1]
         if clip.get('text') != entry['text']:
-            raise ValueError(f'Clip {index} commentary changed. Generate the clips again before combining.')
-        updated.append({**clip, 'minutes': entry['minutes'], 'seconds': entry['seconds'], 'label': entry['label']})
-    return {**result, 'clips': updated}
+            raise ValueError(f"Clip {entry['index']} commentary changed. Generate that clip again before combining.")
+        updated.append({**clip, 'index': entry['index'], 'minutes': entry['minutes'],
+                        'seconds': entry['seconds'], 'label': entry['label']})
+    complete = len(updated) == len(entries)
+    return {**result, 'clips': updated, 'complete': complete}
+
+
+def regeneration_entry(rows, row_id):
+    from batch_generation import validate_entries
+    if not row_id or not isinstance(rows, list):
+        raise ValueError('The paragraph changed or was removed. Generate the clips again.')
+    matches = [row for row in rows if isinstance(row, dict) and row.get('id') == row_id]
+    if len(matches) != 1:
+        raise ValueError('The paragraph changed or was removed. Existing audio was kept.')
+    return validate_entries(matches)[0]
+
+
+def prepare_clip_regeneration(result, rows, row_id, workflow, mode, voice, instruction,
+                              language, seed, release, identity, *settings):
+    if workflow != 'generate' or mode != 'batch':
+        raise ValueError('Switch to Generate / Multiple to generate a paragraph.')
+    from batch_generation import validate_entries, validate_seed
+    # Check all identities, but do not require unrelated unfinished drafts to be valid.
+    if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+        raise ValueError('The paragraph list changed. Existing audio was kept.')
+    validate_entries([dict(id=row.get('id'), minutes=0, seconds=0, text='identity') for row in rows])
+    if result:
+        if not isinstance(result, dict) or not result.get('batch_id') or not isinstance(result.get('clips'), list):
+            raise ValueError('The generated batch is invalid. Existing audio was kept.')
+        clip_ids = [clip.get('id') for clip in result['clips']]
+        if any(not isinstance(key, str) or not key for key in clip_ids) or len(set(clip_ids)) != len(clip_ids):
+            raise ValueError('Generated paragraph identities are invalid or duplicated. Existing audio was kept.')
+    entry = regeneration_entry(rows, row_id)
+    seed_override = 'seed' in entry
+    entry = {**entry, 'seed': validate_seed(entry.get('seed', seed))}
+    batch_id, revision = (result or {}).get('batch_id'), (result or {}).get('revision')
+    generated = generate(voice, entry['text'], instruction, language, entry['seed'], release, identity, *settings)
+    path = generated[0]
+    if not path and len(generated) > 2 and generated[2]:
+        raise ValueError(str(generated[2]) + ' Existing audio was kept.')
+    if not path or Path(path).suffix.lower() != '.wav' or not Path(path).is_file() or Path(path).stat().st_size == 0:
+        raise ValueError('Generation returned no usable audio. Existing audio was kept.')
+    return {'batch_id': batch_id, 'revision': revision,
+            'entry': entry, 'audio': path, 'seed_override': seed_override}
+
+
+def commit_clip_regeneration(candidate, result, rows):
+    """Atomically add/replace one stable-ID clip without losing any prior take."""
+    import shutil
+    from batch_generation import write_archive, timestamp_label, validate_entries
+    if any(candidate.get(key) != (result or {}).get(key) for key in ('batch_id', 'revision')):
+        raise ValueError('The generated batch changed while this clip was running. Existing audio was kept.')
+    if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+        raise ValueError('The paragraph list changed. Existing audio was kept.')
+    identities = validate_entries([dict(id=row.get('id'), minutes=0, seconds=0, text='identity') for row in rows])
+    row_ids = [row['id'] for row in identities]
+    row_id = candidate['entry']['id']
+    # A future draft seed must not invalidate the immutable seed captured on click.
+    current_rows = [{k: v for k, v in row.items() if k != 'seed'} if row.get('id') == row_id else row
+                    for row in rows] if candidate.get('captured_seed') else rows
+    current = regeneration_entry(current_rows, row_id)
+    if current['text'] != candidate['entry']['text']:
+        raise ValueError('The paragraph changed while this clip was running. Existing audio was kept; regenerate its new text.')
+    if not candidate.get('captured_seed') and ((candidate.get('seed_override') and 'seed' not in current) or ('seed' in current and current['seed'] != candidate['entry']['seed'])):
+        raise ValueError('The paragraph seed changed while this clip was running. Existing audio was kept; regenerate with its new seed.')
+    old_clips = (result or {}).get('clips', [])
+    clip_ids = [clip.get('id') for clip in old_clips]
+    if any(not isinstance(key, str) or not key for key in clip_ids) or len(set(clip_ids)) != len(clip_ids):
+        raise ValueError('Generated paragraph identities are invalid or duplicated. Existing audio was kept.')
+    by_id = {clip['id']: dict(clip) for clip in old_clips}
+    existed = row_id in by_id
+    position = row_ids.index(row_id) + 1
+    replacement = {**by_id.get(row_id, {}), **current, 'index': position, 'seed': candidate['entry']['seed']}
+    batch_id = (result or {}).get('batch_id') or uuid.uuid4().hex
+    folder = Path(result['batch_dir']) if result else Path(OUTPUTS) / ('batch-' + batch_id)
+    source = Path(candidate['audio'])
+    if source.suffix.lower() != '.wav' or not source.is_file() or not source.stat().st_size:
+        raise ValueError('Generated audio is unavailable. Existing audio was kept.')
+    # Always copy to a unique revision file: previous players/downloads stay immutable.
+    filename = timestamp_label(current['minutes'], current['seconds']).replace(':', 'm') + f"s-{position:03d}-{uuid.uuid4().hex}.wav"
+    target = folder / filename
+    replacement.update(audio=str(target), filename=filename)
+    by_id[row_id] = replacement
+    clips = []
+    for index, key in enumerate(row_ids, 1):
+        if key in by_id:
+            clips.append(dict(by_id[key], index=index))
+    orphans = [dict(clip, index=len(rows)+index) for index, clip in enumerate(old_clips, 1) if clip['id'] not in row_ids]
+    clips.extend(orphans)
+    complete = not orphans and len(clips) == len(rows)
+    if complete:
+        try:
+            entries = validate_entries(rows, validate_seeds=False)
+            complete = all(by_id[entry['id']]['text'] == entry['text'] for entry in entries)
+        except ValueError:
+            complete = False
+    folder.mkdir(parents=True, exist_ok=True)
+    archive = None
+    try:
+        with source.open('rb') as reader, target.open('xb') as writer:
+            shutil.copyfileobj(reader, writer)
+        archive = write_archive(clips, len(rows), folder, complete=complete)
+        authorize_generated_file(target)
+        authorize_generated_file(Path(archive))
+    except BaseException:
+        target.unlink(missing_ok=True)
+        if archive:
+            Path(archive).unlink(missing_ok=True)
+        raise
+    status = f"{'Updated' if existed else 'Generated'} clip {position} ({current['label']}). All other clips were kept. Playback, downloads and the next Combine use this latest version."
+    if orphans:
+        status += ' Removed paragraphs still have saved audio; generate a new full batch before combining.'
+    elif not complete:
+        status += ' Some current paragraphs still need generation.'
+    return {**(result or {}), 'batch_id': batch_id, 'batch_dir': str(folder), 'clips': clips,
+            'archive': archive, 'revision': (result or {}).get('revision', 0) + 1,
+            'requested_clips': len(rows), 'complete': complete, 'error': None,
+            'origin_draft_id': result.get('origin_draft_id') if result else candidate.get('draft_id'),
+            'highlight_id': row_id, 'status': status}
+
+
+def regenerate_clip_ui(result, rows, workflow, mode, voice, instruction, language, seed,
+                       release, identity, evt: gr.EventData, *settings):
+    try:
+        data = evt._data
+        current_batch = (result or {}).get('batch_id')
+        if 'batch_id' in data and data['batch_id'] != current_batch:
+            same_initial_draft = (data['batch_id'] is None and data.get('draft_id')
+                                  and data['draft_id'] == (result or {}).get('origin_draft_id'))
+            if not same_initial_draft:
+                if not (result or {}).get('batch_id'):
+                    raise ValueError('The generation session was reset. Existing files were kept. Generate this clip again to restore it in the current session.')
+                raise ValueError('The generated batch changed while this clip was queued. Existing audio was kept. The clip list will refresh; retry the current clip.')
+        captured = 'seed' in data
+        if captured:
+            from batch_generation import validate_seed
+            request_seed = validate_seed(data['seed'])
+            rows = [dict(row, seed=request_seed) if isinstance(row, dict) and row.get('id') == data.get('id') else row for row in rows]
+        candidate = prepare_clip_regeneration(result, rows, data.get('id'), workflow, mode,
+                                             voice, instruction, language, seed, release, identity, *settings)
+        candidate['captured_seed'] = True  # Seed is fixed once this queued request starts.
+        candidate['draft_id'] = data.get('draft_id')
+        return candidate
+    except Exception as error:
+        return {'error': str(error)}
+
+
+def commit_clip_regeneration_ui(candidate, result, rows):
+    try:
+        if not candidate or candidate.get('error'):
+            raise ValueError((candidate or {}).get('error', 'No replacement audio was generated.'))
+        if not LOCK.acquire(blocking=False):
+            raise ValueError('Another operation is running. Existing audio was kept; try Regenerate again.')
+        try:
+            updated = commit_clip_regeneration(candidate, result, rows)
+        finally:
+            LOCK.release()
+        return updated, updated['status'], gr.update(value=updated['archive'], visible=True)
+    except Exception as error:
+        return gr.skip(), 'Regeneration failed: ' + str(error), gr.skip()
+
+
+def batch_editor_metadata(result):
+    from clip_timing import generated_timing_metadata
+    result = result or {}
+    return {'batch_id': result.get('batch_id'), 'origin_draft_id': result.get('origin_draft_id'), 'ids': [clip['id'] for clip in result.get('clips', []) if clip.get('id')],
+            'seeds': {clip['id']: clip['seed'] for clip in result.get('clips', []) if clip.get('id') and 'seed' in clip},
+            'highlight_id': result.get('highlight_id'), 'timing': generated_timing_metadata(result),
+            'version': f"{result.get('batch_id', '')}:{result.get('revision', 0)}"}
 
 
 def combine_generated_clips(result, minutes, seconds, workflow, mode, rows=None):
-    """Combine generated audio using validated current editor timestamps."""
+    """Replace media only after a successful mix of the current editor timestamps."""
     if workflow != 'generate' or mode != 'batch':
-        return None, None, 'Switch to Generate / Multiple to combine generated clips.'
+        return gr.skip(), gr.skip(), 'Switch to Generate / Multiple to combine generated clips.'
     if not LOCK.acquire(blocking=False):
-        return None, None, 'Another operation is running. Wait for it to finish, then combine.'
+        return gr.skip(), gr.skip(), 'Another operation is running. Wait for it to finish, then combine.'
     try:
         from combine_clips import combine_timeline
         combined = combine_timeline(current_batch_timing(result, rows) if rows is not None else result, minutes, seconds, OUTPUTS)
         authorize_generated_file(Path(combined['audio']))
         return combined['audio'], combined['audio'], combined['status']
     except Exception as error:
-        return None, None, 'Cannot combine: ' + str(error)
+        return gr.skip(), gr.skip(), 'Cannot combine: ' + str(error)
     finally:
         LOCK.release()
+
+
+def timeline_minimum_status(result, rows=None):
+    """Proactive guidance uses the same current-row and audio checks as Combine."""
+    if not (result or {}).get('clips'):
+        return ''
+    try:
+        from combine_clips import minimum_timeline_seconds
+        current = current_batch_timing(result, rows) if rows is not None else result
+        minimum = minimum_timeline_seconds(current)
+        return f'Minimum total duration: **{minimum // 60}:{minimum % 60:02d}** (minutes:seconds).'
+    except (ValueError, OSError, RuntimeError) as error:
+        return 'Minimum unavailable: ' + str(error)
 
 
 def render_timeline_combine(result, workflow, mode, rows=None):
@@ -706,43 +902,47 @@ def render_timeline_combine(result, workflow, mode, rows=None):
         return
     with gr.Column(visible=not stateful, elem_id='timeline-combine', elem_classes=['timeline-combine']) as combine_panel:
         gr.Markdown('### Combine clips')
-        gr.Markdown('Choose the full timeline length. Clips use the current timestamps in the editor; gaps are silent and overlaps play together. No clip is cut short.', elem_classes=['section-note'])
+        gr.Markdown('Choose the full timeline length. Clips use the current timestamps in the editor; gaps are silent and overlaps play together. No clip is cut short. The last combined audio stays available until a new Combine succeeds.', elem_classes=['section-note'])
         with gr.Row():
             minutes = gr.Number(value=0, precision=0, minimum=0, maximum=1440, label='Total duration: minutes', elem_classes=['timeline-duration'])
             seconds = gr.Number(value=0, precision=0, minimum=0, maximum=59, label='Total duration: seconds', elem_classes=['timeline-duration'])
+        retime = gr.Button('Set timestamps back-to-back', elem_id='clip-retime')
+        gr.HTML('<p role="status" aria-live="polite"></p>', elem_id='clip-timing-status')
+        retime.click(fn=None, js="() => { const origin=document.getElementById('clip-retime'); window.voxoverClipEditor?.alignTimestamps(origin, text => { const status=document.querySelector('#clip-timing-status p'); if(status)status.textContent=text; }); }", api_name=False)
         combine = gr.Button('Combine', elem_classes=['primary-action'])
+        minimum_status = gr.Markdown('' if stateful else timeline_minimum_status(result), elem_id='timeline-minimum-status', elem_classes=['studio-output-status','timeline-minimum-status'], sanitize_html=True)
         notice = gr.Markdown('', elem_classes=['studio-output-status'], sanitize_html=True)
         with gr.Column(elem_id='combined-timeline-result') as media_panel:
             combined_audio = gr.Audio(label='Combined audio', type='filepath', interactive=False, elem_classes=['studio-audio-output','studio-audio'], waveform_options=gr.WaveformOptions(waveform_color='#6e8b9f',waveform_progress_color='#d9b96e',trim_region_color='#d9b96e30'))
             combined_download = gr.DownloadButton('Download combined WAV')
         def start_combine():
-            return gr.update(value='Combining...',interactive=False),gr.update(interactive=False),gr.update(interactive=False),None,None,'Combining generated clips...'
+            return gr.update(value='Combining...',interactive=False),gr.update(interactive=False),gr.update(interactive=False),'Combining generated clips...'
         def execute_combine(total_minutes,total_seconds,active_workflow,active_mode,generated_result,current_rows):
             return combine_generated_clips(generated_result,total_minutes,total_seconds,active_workflow,active_mode,current_rows)
         def finish_combine():
             return gr.update(value='Combine',interactive=True),gr.update(interactive=True),gr.update(interactive=True)
         generated_state = result if stateful else gr.State(result)
         editor_rows = rows if rows is not None else gr.State(None)
-        combine.click(start_combine,outputs=[combine,minutes,seconds,combined_audio,combined_download,notice],queue=False,api_name=False).then(
+        gr.on(triggers=[generated_state.change, editor_rows.change], fn=timeline_minimum_status,
+              inputs=[generated_state, editor_rows], outputs=minimum_status,
+              queue=False, trigger_mode='always_last', show_progress='hidden', api_name=False)
+        combine.click(start_combine,outputs=[combine,minutes,seconds,notice],queue=False,api_name=False).then(
             execute_combine,[minutes,seconds,workflow,mode,generated_state,editor_rows],[combined_audio,combined_download,notice],concurrency_limit=1,api_name=False,
             js="(...args) => { args[2] = document.querySelector('#voice-mode-tabs button[aria-pressed=\"true\"]')?.dataset.voiceMode || args[2]; args[3] = document.querySelector('#commentary-mode-tabs [role=\"tab\"][aria-selected=\"true\"]')?.textContent.trim() === 'Multiple' ? 'batch' : 'single'; return args; }").then(
             finish_combine,outputs=[combine,minutes,seconds],queue=False,api_name=False)
-        def clear_combined():
-            return None,None,''
-        gr.on(triggers=[minutes.input,seconds.input]+([rows.change] if rows is not None else []),fn=clear_combined,outputs=[combined_audio,combined_download,notice],queue=False,api_name=False)
         if stateful:
             result.change(lambda batch:gr.update(visible=bool((batch or {}).get('clips'))),inputs=result,outputs=combine_panel,queue=False,api_name=False)
-            result.change(clear_combined,outputs=[combined_audio,combined_download,notice],queue=False,api_name=False)
 
 
 def generate_commentary_mode(mode, rows, voice, text, instruction, language, seed, release, identity, *settings, progress=gr.Progress()):
     if mode != 'batch':
         result = generate_preview_atomic(voice,text,instruction,language,seed,release,identity,*settings)
         return (gr.update(value=result[0],visible=True),gr.update(value=result[1],visible=True),*result[2:], None, gr.update(visible=False), '', gr.update(value=None,visible=False))
-    from batch_generation import run_batch
+    from batch_generation import run_batch, validate_entries, validate_seed
     generation_options(settings)
     read_voice(voice)
-    result = run_batch(rows, generate_clip=lambda paragraph,index: generate(voice,paragraph,instruction,language,seed,False,identity,*settings)[0], output_root=OUTPUTS, lock=LOCK, release_after=release, release_model=release_model, on_progress=lambda index,total,label:progress((index,total),desc=f'Generating clip {index+1}/{total} ({label})'))
+    entries = [{**entry, 'seed': validate_seed(entry.get('seed', seed))} for entry in validate_entries(rows)]
+    result = run_batch(entries, generate_clip=lambda paragraph,index: generate(voice,paragraph,instruction,language,entries[index]['seed'],False,identity,*settings)[0], output_root=OUTPUTS, lock=LOCK, release_after=release, release_model=release_model, on_progress=lambda index,total,label:progress((index,total),desc=f'Generating clip {index+1}/{total} ({label})'))
     for clip in result['clips']:
         authorize_generated_file(Path(clip['audio']))
     if result['archive']: authorize_generated_file(Path(result['archive']))
@@ -768,6 +968,9 @@ def generate_workflow_mode(workflow, mode, rows, token, ref_audio, ref_transcrip
         raise ValueError('Choose Clone, Design, or Generate.')
     if mode not in ('single', 'batch'):
         raise ValueError('Choose single commentary or multiple clips.')
+    if workflow != 'generate' or mode == 'single':
+        from batch_generation import validate_seed
+        seed = validate_seed(seed)
     if workflow == 'generate':
         return (*generate_commentary_mode(mode, rows, voice, text, instruction, language,
                                           seed, release, identity, *settings, progress=progress),
@@ -788,7 +991,14 @@ def generate_workflow_mode(workflow, mode, rows, token, ref_audio, ref_transcrip
 
 def generate_workflow_ui(request: gr.Request, *args, progress=gr.Progress()):
     try:
-        return generate_workflow_mode(*args, request=request, progress=progress)[:-2]
+        previous = None
+        if len(args) == 16 + len(SETTING_DEFAULTS):  # Final UI snapshot is not a synthesis setting.
+            args, previous = args[:-1], args[-1]
+        result = generate_workflow_mode(*args, request=request, progress=progress)[:-2]
+        batch = result[11]
+        if isinstance(batch, dict) and 'clips' in batch and (not batch['clips'] or (batch.get('error') and (previous or {}).get('clips'))):
+            raise ValueError((batch.get('error') or batch['status']) + ' Previous Listen audio was kept.')
+        return result
     except Exception as error:
         updates = [gr.skip() for _ in range(17)]
         updates[2] = gr.update(value='Generation failed: ' + str(error), visible=True)
@@ -907,9 +1117,9 @@ def clone_submission(args, request):
 
 
 def build_ui():
-    with gr.Blocks(title='Voice Studio | Night Exchange') as app:
+    with gr.Blocks(title='Voxover | Voice & Commentary') as app:
         with gr.Row(elem_id='studio-heading-row'):
-            gr.HTML('<header class="studio-head"><div><h1>Voice Studio</h1><p>Audition a voice, save the one you approve, and shape your commentary.</p></div></header>', elem_id='studio-header')
+            gr.HTML('<header class="studio-head"><div><h1>Voxover</h1><p>Find your voice. Shape every line. Create commentary locally.</p></div></header>', elem_id='studio-header')
             gr.HTML('<nav class="mode-tabs" aria-label="Voice workflow"><button type="button" data-voice-mode="clone" aria-pressed="true">Clone</button><button type="button" data-voice-mode="design" aria-pressed="false">Design</button><button type="button" data-voice-mode="generate" aria-pressed="false">Generate</button></nav>', elem_id='voice-mode-tabs')
         with gr.Tabs(elem_id='workflow-tabs', selected='saved-voice'):
             with gr.Tab('Clone & Generate', id='direct-clone', visible=False):
@@ -936,7 +1146,7 @@ def build_ui():
                                 ref_s, transcript_s, xvec_s = reference_controls()
                                 save = gr.Button('Save voice file', visible=False)
                                 direct_preview = gr.Button('Clone reference & generate commentary', elem_classes=['primary-action'], elem_id='clone-reference-commentary', interactive=False, visible=False)
-                                ref_s.change(fn=None, inputs=ref_s, js="(audio) => { window.voiceStudioReferenceReady = !!audio; document.getElementById('production-workspace')?.dispatchEvent(new Event('input',{bubbles:true})); }", api_name=False)
+                                ref_s.change(fn=None, inputs=ref_s, js="(audio) => { window.voxoverReferenceReady = !!audio; document.getElementById('production-workspace')?.dispatchEvent(new Event('input',{bubbles:true})); }", api_name=False)
                                 saved = gr.File(label='Saved voice file (.pt)', interactive=False, height=85, visible=False)
                                 save_status = gr.Markdown(value='', visible=False, elem_classes=['studio-output-status'], sanitize_html=True)
                             with gr.Column(elem_id='design-inputs'):
@@ -946,36 +1156,54 @@ def build_ui():
                                 design_download = gr.Button('Download voice', visible=False, elem_id='design-download-voice', elem_classes=['studio-presence'])
                                 design_file = gr.File(label='Designed voice (.pt)', interactive=False, visible=False, elem_id='design-voice-file')
                                 design_save_status = gr.Markdown(value='', visible=False, elem_classes=['studio-output-status'])
-                        with gr.Column(scale=1, min_width=340, elem_classes=['studio-panel']):
-                            gr.Markdown('## Generate')
-                            gr.Markdown('Write an audition in Clone or Design. Generate supports single commentary and multiple clips.', elem_classes=['section-note'])
-                            with gr.Column(elem_id='saved-voice-inputs'):
-                                gr.Markdown('Use an existing .pt voice to create commentary.', elem_classes=['section-note'])
-                                voice = gr.File(label='Voice file (.pt)', file_types=['.pt'], type='filepath', height=130, elem_classes=['studio-voice-input'])
-                                info = gr.Markdown(value='', elem_classes=['studio-output-status'], elem_id='selected-voice-status', sanitize_html=True)
-                            workflow = gr.Textbox(value='clone', label='Workflow mode', elem_id='workflow-mode')
-                            clone_busy=gr.State(False)
-                            text, instruction, language, seed, release, identity, button, settings, commentary_mode, clip_entries = compose_controls(batch=True)
+                        with gr.Column(scale=1, min_width=340, elem_classes=['studio-panel'], elem_id='generate-panel'):
+                            with gr.Column(elem_id='generate-top-controls'):
+                                gr.Markdown('## Generate')
+                                gr.Markdown('Write an audition in Clone or Design. Generate supports single commentary and multiple clips.', elem_classes=['section-note'])
+                                with gr.Column(elem_id='saved-voice-inputs'):
+                                    gr.Markdown('Use an existing .pt voice to create commentary.', elem_classes=['section-note'])
+                                    voice = gr.File(label='Voice file (.pt)', file_types=['.pt'], type='filepath', height=130, elem_classes=['studio-voice-input'])
+                                    info = gr.Markdown(value='', elem_classes=['studio-output-status'], elem_id='selected-voice-status', sanitize_html=True)
+                                workflow = gr.Textbox(value='clone', label='Workflow mode', elem_id='workflow-mode')
+                                clone_busy=gr.State(False)
+                                text, instruction, language, seed, release, identity, button, settings, commentary_mode, clip_entries = compose_controls(batch=True)
+                            clip_entries = gr.HTML([{'id':uuid.uuid4().hex,'minutes':0,'seconds':1,'text':''}], html_template=ui_asset_text('clip-editor.html'), js_on_load=ui_asset_text('clip-seeds.js')+'\n'+ui_asset_text('clip-timing.js')+'\n'+ui_asset_text('paragraph-timing.js')+'\n'+ui_asset_text('clip-editor.js'), elem_id='clip-editor', css_template=ui_asset_text('clip-editor.css'))
                     with gr.Column(scale=1, min_width=0, elem_classes=['studio-panel','result-panel'], elem_id='listen-panel'):
-                        generation_busy=gr.State(False)
-                        generation_notice = gr.HTML('',visible=False,elem_id='generation-notice')
-                        audio, download, status = output_controls()
-                        batch_result = gr.State(None)
-                        with gr.Column(visible=True, elem_id='batch-output') as batch_panel:
-                            batch_status = gr.Markdown('', elem_classes=['studio-output-status'])
-                            with gr.Row():
+                        with gr.Column(elem_id='listen-top-controls'):
+                            generation_busy=gr.State(False)
+                            generation_notice = gr.HTML('',visible=False,elem_id='generation-notice')
+                            audio, download, status = output_controls()
+                            batch_result = gr.State(None)
+                            batch_metadata = gr.HTML({'ids':[]}, visible='hidden', html_template='',
+                                js_on_load="const publish=()=>{window.voxoverBatchMetadata=props.value;window.dispatchEvent(new Event('voxover-batch'));};watch('value',publish);publish();")
+                            # Explicit completion chains publish current durations before releasing the queue.
+                            # Clearing via another mode still removes stale per-clip identities.
+                            batch_result.change(lambda result: gr.skip() if result else batch_editor_metadata(None), batch_result, batch_metadata, queue=False, api_name=False)
+                            render_timeline_combine(batch_result, workflow, commentary_mode, clip_entries)
+                            batch_status = gr.Markdown('', elem_classes=['studio-output-status'], elem_id='batch-status')
+                            with gr.Row(elem_id='batch-playback-controls'):
                                 play_all = gr.Button('Play all', elem_id='batch-play-all')
                                 stop_all = gr.Button('Stop playback', elem_id='batch-stop-all')
                                 batch_zip = gr.DownloadButton('Download all (ZIP)', visible=False)
+                        with gr.Column(visible=True, elem_id='batch-output') as batch_panel:
+                            def show_generated_batch(result):
+                                return gr.update(visible=True) if (result or {}).get('clips') else gr.skip()
+                            batch_result.change(show_generated_batch,batch_result,batch_panel,queue=False,api_name=False)
+                            gr.HTML('<div class="clip-placeholders"></div>', elem_id='clip-placeholders')
                             @gr.render(inputs=batch_result)
                             def render_clips(result):
                                 for clip in (result or {}).get('clips', []):
-                                    with gr.Column(elem_classes=['batch-clip'], key=clip['audio']):
-                                        gr.Markdown('### '+clip['label'])
-                                        player=gr.Audio(value=clip['audio'], type='filepath', interactive=False, label=clip['filename'], elem_classes=['studio-audio-output','studio-audio','batch-audio'], waveform_options=gr.WaveformOptions(waveform_color='#6e8b9f',waveform_progress_color='#d9b96e',trim_region_color='#d9b96e30'))
-                                        player.stop(fn=None,js='() => window.voiceStudioBatchPlayback?.finished('+str(clip['index']-1)+')',api_name=False,key='ended-'+clip['audio'])
+                                    updated = clip.get('id') and clip.get('id') == (result or {}).get('highlight_id')
+                                    with gr.Column(elem_classes=['batch-clip']+(['batch-clip-updated'] if updated else []), elem_id='generated-clip-'+clip['id'] if clip.get('id') else None, key=clip['audio']):
+                                        gr.Markdown('### '+clip['label']+(' - Updated' if updated else ''))
+                                        player=gr.Audio(value=clip['audio'], type='filepath', interactive=False, label=clip['filename'], key='audio-'+clip['audio'], elem_classes=['studio-audio-output','studio-audio','batch-audio'], waveform_options=gr.WaveformOptions(waveform_color='#6e8b9f',waveform_progress_color='#d9b96e',trim_region_color='#d9b96e30'))
+                                        player.stop(fn=None,js='() => window.voxoverBatchPlayback?.finished('+str(clip['index']-1)+')',api_name=False,key='ended-'+clip['audio'])
                                         gr.DownloadButton('Download '+clip['label'], value=clip['audio'])
-                        render_timeline_combine(batch_result, workflow, commentary_mode, clip_entries)
+                                        gr.HTML('<div class="wrap clip-pending-surface">'
+                                            f'<div class="progress-level"><span class="progress-level-inner" role="status" aria-live="polite">Regenerating clip {clip["index"]}...</span></div>'
+                                            f'<div class="progress-bar-wrap" role="progressbar" aria-label="Regenerating clip {clip["index"]}"><div class="progress-bar"></div></div>'
+                                            '<div class="meta-text clip-pending-elapsed" aria-hidden="true">processing | 0.0s</div></div>',
+                                            elem_classes=['clip-regeneration-loader'])
                         with gr.Column(visible=False, elem_classes=['studio-presence'], elem_id='audition-save-actions') as preview_actions:
                             preview_confirm = gr.State(False)  # Compatibility slot; no approval UI or save gate.
                             use_correction = gr.Checkbox(label='Correct transcript before saving', value=False, interactive=True, elem_id='edit-transcript')
@@ -992,19 +1220,33 @@ def build_ui():
                 button.click(workflow_started, inputs=workflow, outputs=[button,generation_notice,generation_busy,workflow_ticket],queue=False,api_name=False,
                     js="(workflow) => document.querySelector('#voice-mode-tabs button[aria-pressed=\"true\"]')?.dataset.voiceMode || workflow").then(
                     generate_workflow_ui,
-                    [workflow,commentary_mode,clip_entries,workflow_ticket,ref_s,transcript_s,xvec_s,design_description,voice,text,instruction,language,seed,release,identity,*settings],
+                    [workflow,commentary_mode,clip_entries,workflow_ticket,ref_s,transcript_s,xvec_s,design_description,voice,text,instruction,language,seed,release,identity,*settings,batch_result],
                     [audio,download,status,preview_state,preview_transcript,preview_confirm,preview_actions,correction,preview_file,preview_status,use_correction,batch_result,batch_panel,batch_status,batch_zip,saved,save_status],
-                    api_name='generate_commentary', concurrency_limit=1,show_progress='full',
-                    js="(...args) => { args[0] = document.querySelector('#voice-mode-tabs button[aria-pressed=\"true\"]')?.dataset.voiceMode || args[0]; return args; }").then(
+                    api_name='generate_commentary', concurrency_limit=1,concurrency_id='studio-generation',show_progress='full',
+                    js="(...args) => { args[0] = document.querySelector('#voice-mode-tabs button[aria-pressed=\"true\"]')?.dataset.voiceMode || args[0]; args[1] = document.querySelector('#commentary-mode-tabs [role=\"tab\"][aria-selected=\"true\"]')?.textContent.trim() === 'Multiple' ? 'batch' : 'single'; return window.voxoverSeedRandomizer?.prepare(args) || args; }").then(
                     workflow_completed,inputs=[workflow,commentary_mode,clip_entries,voice,ref_s,transcript_s,xvec_s,design_description,text,*settings],
-                    outputs=[button,generation_notice,generation_busy],queue=False,api_name=False)
+                    outputs=[button,generation_notice,generation_busy],queue=False,api_name=False).then(
+                    batch_editor_metadata,inputs=batch_result,outputs=batch_metadata,queue=True,show_progress='hidden',api_name=False).then(
+                    fn=None,js="() => window.voxoverGenerationGuard?.finish()",api_name=False)
+                regeneration_candidate = gr.State(None)
+                # Commit must be queued: Gradio's direct /run responses omit
+                # State.change notifications, so an unqueued commit leaves stale players.
+                clip_entries.regenerate(regenerate_clip_ui,
+                    [batch_result,clip_entries,workflow,commentary_mode,voice,instruction,language,seed,release,identity,*settings],
+                    regeneration_candidate, concurrency_limit=1, concurrency_id='studio-generation', show_progress='hidden',api_name=False,
+                    js="(...args) => { args[2] = 'generate'; args[3] = 'batch'; return args; }").then(
+                    commit_clip_regeneration_ui,[regeneration_candidate,batch_result,clip_entries],
+                    [batch_result,batch_status,batch_zip],queue=True,concurrency_limit=1,
+                    concurrency_id='studio-generation',show_progress='hidden',api_name=False).then(
+                    batch_editor_metadata,inputs=batch_result,outputs=batch_metadata,queue=True,show_progress='hidden',api_name=False).then(
+                    fn=None,js="() => window.voxoverGenerationGuard?.finish()",api_name=False)
                 gr.on(triggers=[workflow.change,voice.change,ref_s.change,transcript_s.change,xvec_s.change,design_description.change,text.change,clip_entries.change,commentary_mode.change,generation_busy.change]+[control.change for control in settings],
                     fn=update_workflow_readiness,inputs=[workflow,commentary_mode,clip_entries,voice,ref_s,transcript_s,xvec_s,design_description,text,generation_busy,*settings],outputs=button,queue=False,api_name=False)
                 # Preserve the existing single-clip API for integrations.
                 legacy_generate = gr.Button(visible=False)
                 legacy_generate.click(generate_preview_atomic, [voice,text,instruction,language,seed,release,identity,*settings], [audio,download,status,preview_state,preview_transcript,preview_confirm,preview_actions,correction,preview_file,preview_status,use_correction], api_name='generate', concurrency_limit=1)
-                play_all.click(fn=None,js="() => window.voiceStudioBatchPlayback?.play()",api_name=False)
-                stop_all.click(fn=None,js="() => window.voiceStudioBatchPlayback?.stop()",api_name=False)
+                play_all.click(fn=None,js="() => window.voxoverBatchPlayback?.play()",api_name=False)
+                stop_all.click(fn=None,js="() => window.voxoverBatchPlayback?.stop()",api_name=False)
                 clone_ticket=gr.State(0)
                 clone_busy=bind_busy_action(direct_preview,None,[clone_ticket,ref_s,transcript_s,xvec_s,text,instruction,language,seed,release,*settings],
                     [audio,download,status,preview_state,preview_transcript,preview_confirm,saved,save_status,preview_actions,correction,preview_file,preview_status,use_correction,voice,info,batch_result,batch_panel],
@@ -1041,10 +1283,10 @@ def build_ui():
             gr.HTML('<div id="inline-api-host" class="studio-utility-host"></div>')
         with gr.Accordion('Settings', open=False, elem_classes=['generation-settings','studio-help','studio-utility-section'], elem_id='inline-settings-section') as settings_section:
             gr.HTML('<div id="inline-settings-host" class="studio-utility-host"></div>')
-        api_section.expand(fn=None,js="() => window.voiceStudioUtilities?.open('api')",api_name=False)
-        api_section.collapse(fn=None,js="() => window.voiceStudioUtilities?.close('api')",api_name=False)
-        settings_section.expand(fn=None,js="() => window.voiceStudioUtilities?.open('settings')",api_name=False)
-        settings_section.collapse(fn=None,js="() => window.voiceStudioUtilities?.close('settings')",api_name=False)
+        api_section.expand(fn=None,js="() => window.voxoverUtilities?.open('api')",api_name=False)
+        api_section.collapse(fn=None,js="() => window.voxoverUtilities?.close('api')",api_name=False)
+        settings_section.expand(fn=None,js="() => window.voxoverUtilities?.open('settings')",api_name=False)
+        settings_section.collapse(fn=None,js="() => window.voxoverUtilities?.close('settings')",api_name=False)
         with gr.Column(visible=False,elem_id='storage-picker-dialog') as folder_dialog:
             gr.Markdown('## Choose a storage folder')
             gr.Markdown('Local folders only. Choosing a folder affects future saves; existing files stay where they are.')
@@ -1069,6 +1311,11 @@ def build_ui():
         child.input(browse_storage_child,[folder_path,child],[folder_path,child],api_name=False,queue=False)
         bind_busy_action(confirm,None,[folder_kind,folder_path],[output_folder,voice_folder,storage_status,folder_dialog,folder_note],'Use this folder','Saving folder...',4,adapter=commit_storage_submission)
         cancel_folder.click(lambda:gr.update(visible=False),outputs=folder_dialog,api_name=False,queue=False)
+        app.load(fn=None, js=ui_asset_text('seed-randomizer.js').replace('// SEED_HELPERS', ui_asset_text('clip-seeds.js')))
+        app.load(fn=None, js=ui_asset_text('number-wheel.js'))
+        app.load(fn=None, js=ui_asset_text('generation-guard.js'))
+        app.load(fn=None, js=ui_asset_text('clip-loading.js'))
+        app.load(fn=None, js=ui_asset_text('clip-alignment.js'))
         app.load(fn=None, js=ui_asset_text('night-sky.js'))
         app.load(fn=None, js=ui_asset_text('batch-playback.js'))
         app.load(fn=None, js=ui_asset_text('commentary-tabs.js'))
@@ -1078,4 +1325,4 @@ def build_ui():
     return app
 
 if __name__ == '__main__':
-    build_ui().queue(default_concurrency_limit=1).launch(server_name='127.0.0.1', server_port=int(os.environ.get('VOICE_STUDIO_PORT', '8003')), share=False, inbrowser=False, show_error=True, css=ui_asset_text('theme.css'), allowed_paths=[str(ROOT/'assets')], footer_links=["api", "settings"])
+    build_ui().queue(default_concurrency_limit=1).launch(server_name='127.0.0.1', server_port=int(app_setting('PORT', '8003')), share=False, inbrowser=False, show_error=True, favicon_path=str(ROOT/'assets'/'app-icon'/'voxover.ico'), css=ui_asset_text('theme.css'), allowed_paths=[str(ROOT/'assets')], footer_links=["api", "settings"])

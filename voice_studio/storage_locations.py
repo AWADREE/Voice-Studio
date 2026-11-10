@@ -44,25 +44,25 @@ class StorageLocations:
 
 def require_local_ui(request):
     if request is None or getattr(getattr(request,'client',None),'host',None) not in ('127.0.0.1','::1','localhost'):
-        raise ValueError('Folder selection is only available from the local Voice Studio browser.')
+        raise ValueError('Folder selection is only available from the local Voxover browser.')
     headers=request.headers
     origin=headers.get('origin') or headers.get('referer')
     parsed=urlparse(origin or '')
     if parsed.scheme not in ('http','https') or parsed.hostname not in ('127.0.0.1','localhost','::1'):
-        raise ValueError('Open Voice Studio locally before choosing a folder.')
+        raise ValueError('Open Voxover locally before choosing a folder.')
     # Origin must match the server port, not another local web app.
     host=urlparse('http://'+headers.get('host',''))
-    if parsed.port!=host.port:raise ValueError('Folder selection requires the same local Voice Studio origin.')
+    if parsed.port!=host.port:raise ValueError('Folder selection requires the same local Voxover origin.')
 
 def choose_folder(initial,title):
     # A separate STA Windows Forms dialog avoids Tk/Shell deadlocks in web worker threads.
     script="""Add-Type -AssemblyName System.Windows.Forms
 $dialog=New-Object System.Windows.Forms.FolderBrowserDialog
-$dialog.Description=$env:VOICE_STUDIO_PICKER_TITLE
-$dialog.SelectedPath=$env:VOICE_STUDIO_PICKER_INITIAL
+$dialog.Description=$env:VOXOVER_PICKER_TITLE
+$dialog.SelectedPath=$env:VOXOVER_PICKER_INITIAL
 $dialog.ShowNewFolderButton=$true
 $owner=New-Object System.Windows.Forms.Form
-$owner.Text='Voice Studio folder selection'
+$owner.Text='Voxover folder selection'
 $owner.TopMost=$true
 $owner.ShowInTaskbar=$false
 $owner.Size=New-Object Drawing.Size(1,1)
@@ -72,5 +72,5 @@ $owner.Activate()
 try { if($dialog.ShowDialog($owner) -eq [System.Windows.Forms.DialogResult]::OK){[Console]::OutputEncoding=[Text.Encoding]::UTF8;[Console]::Write($dialog.SelectedPath)} } finally {$dialog.Dispose();$owner.Close();$owner.Dispose()}
 """
     startup=subprocess.STARTUPINFO();startup.dwFlags|=subprocess.STARTF_USESHOWWINDOW;startup.wShowWindow=1
-    result=subprocess.run(['powershell.exe','-NoProfile','-STA','-Command',script],startupinfo=startup,capture_output=True,text=True,encoding='utf-8-sig',env={**os.environ,'VOICE_STUDIO_PICKER_TITLE':title,'VOICE_STUDIO_PICKER_INITIAL':str(initial)},creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0),check=True,timeout=300)
+    result=subprocess.run(['powershell.exe','-NoProfile','-STA','-Command',script],startupinfo=startup,capture_output=True,text=True,encoding='utf-8-sig',env={**os.environ,'VOXOVER_PICKER_TITLE':title,'VOXOVER_PICKER_INITIAL':str(initial)},creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0),check=True,timeout=300)
     return result.stdout.strip()

@@ -11,5 +11,5 @@ The official code stays at the repository root. Our independent UI is confined t
 7. Review git diff and the staged file list for personal data, logs, model files, machine paths, credentials, and unlicensed assets before push.
 8. Merge the tested update branch into our main. Keep the previous working installation intact until verified. Roll back by returning to the previous commit/environment; never delete user audio or prompts.
 
-Our main contains Voice Studio. Pristine official history is tracked by upstream/main; do not overwrite our main with it. Use an update branch for each upstream merge, resolve conflicts, test, then merge the proven result into our main. Use the separate Voice Studio launcher rather than replacing qwen-tts-demo.
+Our main contains Voxover. Pristine official history is tracked by upstream/main; do not overwrite our main with it. Use an update branch for each upstream merge, resolve conflicts, test, then merge the proven result into our main. Use the separate Voxover launcher rather than replacing qwen-tts-demo.
 

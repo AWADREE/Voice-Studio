@@ -82,6 +82,13 @@ class BatchIntegrationTests(unittest.TestCase):
         self.assertFalse(result[14]['visible'])
         authorize.assert_not_called(); release.assert_called_once_with()
 
+    def test_first_empty_multiple_clip_defaults_to_one_second(self):
+        config = app.build_ui().get_config_file()
+        editor = next(component for component in config['components']
+                      if component['props'].get('elem_id') == 'clip-editor')
+        first = editor['props']['value'][0]
+        self.assertEqual((first['minutes'], first['seconds'], first['text']), (0, 1, ''))
+
     def test_ui_retains_legacy_and_new_api(self):
         with patch.object(app,'load_model') as load:
             cfg = app.build_ui().get_config_file()

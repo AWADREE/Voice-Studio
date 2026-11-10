@@ -1,10 +1,10 @@
 # Creates a shortcut beside this script only. Does not install or modify Start menu entries.
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
-$icon = Join-Path $root 'assets\app-icon\voice-studio.ico'
-$localLauncher = Join-Path $root 'Open Voice Studio.cmd'
+$icon = Join-Path $root 'assets\app-icon\voxover.ico'
+$localLauncher = Join-Path $root 'Open Voxover.cmd'
 $shell = New-Object -ComObject WScript.Shell
-$link = $shell.CreateShortcut((Join-Path $root 'Voice Studio.lnk'))
+$link = $shell.CreateShortcut((Join-Path $root 'Voxover.lnk'))
 if (Test-Path -LiteralPath $localLauncher) {
     $link.TargetPath = $localLauncher
 } else {
@@ -13,6 +13,6 @@ if (Test-Path -LiteralPath $localLauncher) {
 }
 $link.WorkingDirectory = $root
 $link.IconLocation = "$icon,0"
-$link.Description = 'Voice Studio'
+$link.Description = 'Voxover'
 $link.Save()
-Write-Output (Join-Path $root 'Voice Studio.lnk')
+Write-Output (Join-Path $root 'Voxover.lnk')

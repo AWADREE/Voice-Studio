@@ -28,7 +28,7 @@ Generate, Clone reference & generate, Save as new voice, hidden legacy Save voic
 Verification: 72 Python tests; delayed local synthetic browser checks for generation, clone failure, save failure, successful unload and invalid folder confirmation. Real model inference was not repeated for this UI lifecycle change.
 
 ## Paragraph import
-The timestamped tab accepts an uncapped source script. Split on blank lines (including whitespace-only separators); trim paragraphs, retain internal single line breaks, start at 00:05, then add 0.08 seconds per preceding Unicode character, including internal spaces and punctuation. Integer centiseconds prevent accumulated rounding drift; only displayed timestamps round to whole seconds. These are editable estimates, not duration guarantees.
+The timestamped tab accepts an uncapped source script. Split on blank lines (including whitespace-only separators); trim paragraphs, retain internal single line breaks, start at 00:01, then add 0.08 seconds per preceding Unicode character, including internal spaces and punctuation. Integer centiseconds prevent accumulated rounding drift; only displayed timestamps round to whole seconds. These are editable estimates, not duration guarantees.
 
 Existing nonempty or retimed rows require explicit replacement confirmation. Cancel preserves them; source text is never cleared. Undo toggles between the previous and imported rows. Current generation limits remain 100 clips and 2,000 characters per clip: oversized imports explain how to split the script and leave all existing content intact.
 

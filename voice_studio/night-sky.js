@@ -672,7 +672,7 @@
         syncMotion();
     };
     // Failure intentionally leaves the original procedural loading fallback visible.
-    image.src = '__VOICE_STUDIO_ASSETS__/night-sky-stars-removed.png';
+    image.src = '__VOXOVER_ASSETS__/night-sky-stars-removed.png';
     rebuild();
     syncMotion();
     window.addEventListener('resize', resize);

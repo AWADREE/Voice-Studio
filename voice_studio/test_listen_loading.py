@@ -9,7 +9,7 @@ class ListenLoadingTests(unittest.TestCase):
         css=(Path(app.ROOT)/'theme.css').read_text(encoding='utf-8-sig')
         self.rules=css[css.index('/* Keep regeneration') :]
     def test_main_busy_audio_uses_one_fixed_surface_without_empty_branch(self):
-        selector='#listen-panel>.studio-audio-output:has(>.wrap:not(.hide))'
+        selector='#listen-top-controls>.studio-audio-output:has(>.wrap:not(.hide))'
         match=re.search(re.escape(selector)+r'\s*\{([^}]+)\}',self.rules)
         self.assertIsNotNone(match)
         style=match.group(1)
@@ -19,7 +19,7 @@ class ListenLoadingTests(unittest.TestCase):
         self.assertNotIn(':has(.empty)',self.rules)
         self.assertIn(selector+'>:not(.wrap){opacity:0!important;visibility:hidden!important}',self.rules)
     def test_busy_backdrop_and_old_export_controls_are_consistent(self):
-        self.assertIn('#listen-panel>.studio-audio-output>.wrap:not(.hide){background:#091a2a!important',self.rules)
+        self.assertIn('#listen-top-controls>.studio-audio-output>.wrap:not(.hide){background:#091a2a!important',self.rules)
         self.assertIn('display:none!important;opacity:0!important',self.rules)
         self.assertIn('display .24s allow-discrete',self.rules)
         self.assertIn('@starting-style',self.rules)

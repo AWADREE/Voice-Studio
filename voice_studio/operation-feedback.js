@@ -1,6 +1,6 @@
 () => {
-  if (window.voiceStudioOperationFeedback) return;
-  window.voiceStudioOperationFeedback=true;
+  if (window.voxoverOperationFeedback) return;
+  window.voxoverOperationFeedback=true;
   const refresh=()=>{
     document.querySelectorAll('button').forEach(button=>{
       const busy=/^(Generating commentary|Cloning & generating|Saving voice|Saving new voice|Unloading model|Saving folder)\.\.\.$/.test(button.textContent.trim());

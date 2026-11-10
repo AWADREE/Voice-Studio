@@ -1,6 +1,6 @@
-# Voice Studio
+# Voxover
 
-Project: https://github.com/AWADREE/Voice-Studio
+Project: https://github.com/AWADREE/Voxover
 
 An independent, local-only Gradio frontend for Qwen3-TTS Base and VoiceDesign: reusable voice prompts, cloning and prompt-based voice design with preview, optional experimental Base delivery instructions, generation controls, and audio/voice export. Upstream engine and original demo are unmodified.
 
@@ -13,9 +13,13 @@ python -m pip install -e ..
 python -m pip install -r requirements.txt
 python -B app.py
 ```
-Open http://127.0.0.1:8003. Windows users can run Open-GUI.ps1. Run Create-Shortcut.ps1 to create a local Voice Studio shortcut with the included multi-resolution icon. This creates no Start menu entry. Set VOICE_STUDIO_PYTHON to an existing environment's python executable for that launcher.
+Open http://127.0.0.1:8003. Windows users can run Open-GUI.ps1. Run Create-Shortcut.ps1 to create a local Voxover shortcut with the included multi-resolution icon. This creates no Start menu entry. Set VOXOVER_PYTHON to an existing environment's python executable for that launcher.
 
-Download the official Qwen/Qwen3-TTS-12Hz-1.7B-Base and Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign models separately following upstream instructions. This frontend uses local files only and never downloads weights on startup. Set HF_HOME to your existing Hugging Face cache, VOICE_STUDIO_MODEL_CACHE to the Base model cache directory, or VOICE_STUDIO_DESIGN_MODEL_CACHE to the VoiceDesign model cache directory. Each cache directory must contain refs/main and snapshots/. VOICE_STUDIO_PORT selects another local port. No model loads until generation or voice saving; CUDA and at least 6 GB free VRAM are checked, and default generation unloads afterward. Loading a different checkpoint for an operation unloads the previous model first. This minimum is not a guarantee against OOM for long inputs.
+Download the official Qwen/Qwen3-TTS-12Hz-1.7B-Base and Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign models separately following upstream instructions. This frontend uses local files only and never downloads weights on startup. Set HF_HOME to your existing Hugging Face cache, VOXOVER_MODEL_CACHE to the Base model cache directory, or VOXOVER_DESIGN_MODEL_CACHE to the VoiceDesign model cache directory. Each cache directory must contain refs/main and snapshots/. VOXOVER_PORT selects another local port. No model loads until generation or voice saving; CUDA and at least 6 GB free VRAM are checked, and default generation unloads afterward. Loading a different checkpoint for an operation unloads the previous model first. This minimum is not a guarantee against OOM for long inputs.
+
+### Existing installations
+
+Legacy `CADENTVOX_*` and `VOICE_STUDIO_*` environment variables still work. Nonempty settings are resolved in this order: `VOXOVER_*`, `CADENTVOX_*`, then `VOICE_STUDIO_*`. The `voice_studio/` folder and upstream `qwen-tts` package name stay unchanged so existing environments and storage locations continue to work. The application and repository are now named **Voxover**.
 
 ## Storage and privacy
 Outputs/, Voices/, and Temp/ are local runtime data, excluded from Git. Saved voice prompts can encode voice identity: never commit them, recordings, logs, or machine settings. Only use trusted voice prompts and voices you have rights to use. No public Gradio sharing is enabled.
@@ -27,7 +31,7 @@ See [VOICE-DESIGN-PARITY.md](VOICE-DESIGN-PARITY.md) for the reference GUI field
 
 ## Shared commentary workflow
 
-Choose Clone, Design, or Generate at the top. The central Generate panel keeps the same commentary text, timestamped paragraphs, language, seed, and sampling settings when you switch modes. Clone needs reference audio and an optional exact reference transcript; its Generate action saves one reusable Base `.pt` voice prompt and uses it for the single take or all multiple clips. Design needs a voice design instruction; its Generate action uses the VoiceDesign checkpoint for the single take or each timestamped clip. Generate uses an existing `.pt` voice file. The `.pt` picker appears only in Generate mode. All three modes use the same playback and export panel. Timestamp labels identify separate clips and do not insert silence. A single Design preview can be saved as a Base voice prompt after listening and confirming or correcting its transcript.
+Choose Clone, Design, or Generate at the top. Clone and Design create a single audition without saving a `.pt` automatically. Listen, confirm or correct the transcript, and save an approved audition as a reusable voice prompt. Generate uses an existing `.pt` for single commentary or multiple timestamped clips. The shared script, language and settings remain intact while switching modes. Multiple clips support per-clip seeds, regeneration, timing alignment, playback and combined export. Timestamp labels identify clips; they are not forced silence durations.
 
 ## Theme
 The public distribution includes our generated night-sky artwork and matching animated stars, authorized by the project owner for publication. Asset URLs resolve from the checkout, so no private local overrides are required. Sora and IBM Plex Sans font licenses are in assets/. The microphone app icon is a locally authored geometric design. See ASSET-PROVENANCE.md.
@@ -37,8 +41,7 @@ The public distribution includes our generated night-sky artwork and matching an
 With the Base model cached, run:
 ```
 python -B -m unittest discover -v
-node test_mode_transition.cjs
-node test_art_drift.cjs
+Get-ChildItem test_*.cjs | ForEach-Object { node $_.FullName; if ($LASTEXITCODE) { throw "JavaScript test failed" } }
 ```
 Tests use a synthetic speaker embedding and codec tokens, not a person's voice. Most inference tests use a mocked model. Real inference and browser interactions must additionally be checked before changing the live installation. See VERIFICATION.md and UPDATING.md.
 

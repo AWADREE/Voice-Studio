@@ -1,5 +1,5 @@
 () => {
- if(window.voiceStudioUtilities)return;
+ if(window.voxoverUtilities)return;
  const mounted=new Map(),pending=new Set();
  const setAttribute=(node,name,value)=>{if(node&&node.getAttribute(name)!==value)node.setAttribute(name,value);};
  const section=kind=>document.getElementById('inline-'+kind+'-section');
@@ -29,7 +29,7 @@
   const trigger=footerButton(kind);if(trigger){pending.add(kind);trigger.click();}
  }
  function close(kind){semantics(kind);}
- window.voiceStudioUtilities={open,close};
+ window.voxoverUtilities={open,close};
  function refresh(){
   for(const kind of ['api','settings']){
    semantics(kind);const trigger=footerButton(kind);if(trigger&&trigger.dataset.inlineUtilityTrigger!==kind)trigger.dataset.inlineUtilityTrigger=kind;

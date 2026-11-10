@@ -15,6 +15,8 @@ import uuid
 import numpy as np
 import soundfile as sf
 
+from batch_generation import timestamp_to_frames, validate_timestamp_seconds
+
 MAX_DURATION_SECONDS = 24 * 60 * 60
 MAX_WAV_BYTES = 2**32 - 1024 * 1024  # Conservative classic RIFF/WAV boundary.
 BLOCK_FRAMES = 65536
@@ -38,11 +40,55 @@ def _clock(seconds):
     return f'{required // 60}:{required % 60:02d}'
 
 
+def _timeline_sources(batch_result, stack):
+    """Read source metadata once, shared by guidance and exact export checks."""
+    if not isinstance(batch_result, dict):
+        raise ValueError('Generate timestamped clips before combining them.')
+    clips = batch_result.get('clips')
+    if not isinstance(clips, list) or not 1 <= len(clips) <= 100:
+        raise ValueError('Combine requires between 1 and 100 generated clips.')
+    plans = []
+    sample_rate = channels = None
+    for position, clip in enumerate(clips, 1):
+        if not isinstance(clip, dict) or not clip.get('audio'):
+            raise ValueError(f'Clip {position} has no generated audio file.')
+        index = clip.get('index', position)
+        minutes = _integer(clip.get('minutes'), f'Clip {index} minutes', 9999)
+        seconds = validate_timestamp_seconds(clip.get('seconds'), f'Clip {index} seconds')
+        try:
+            reader = stack.enter_context(sf.SoundFile(Path(clip['audio']), 'r'))
+        except (OSError, RuntimeError, TypeError) as exc:
+            raise ValueError(f'Cannot read generated audio for clip {index}: {exc}') from exc
+        if reader.frames <= 0 or reader.samplerate <= 0 or reader.channels not in (1, 2):
+            raise ValueError(f'Clip {index} must contain nonempty mono or stereo audio.')
+        if sample_rate is None:
+            sample_rate, channels = reader.samplerate, reader.channels
+        elif (reader.samplerate, reader.channels) != (sample_rate, channels):
+            raise ValueError(f'Clip {index} has a different sample rate or channel count. All clips must match; audio is not resampled or downmixed.')
+        start = timestamp_to_frames(minutes, seconds, sample_rate)
+        end = start + reader.frames
+        plans.append((index, reader, start, end))
+    return plans, sample_rate, channels
+
+
+def minimum_timeline_seconds(batch_result):
+    """Smallest whole-second duration covering every currently generated clip."""
+    with ExitStack() as stack:
+        plans, sample_rate, channels = _timeline_sources(batch_result, stack)
+        # Integer sample arithmetic never rounds a fractional end down.
+        required = max((end + sample_rate - 1) // sample_rate for _, _, _, end in plans)
+        if required > MAX_DURATION_SECONDS:
+            raise ValueError('The clips exceed the 24-hour timeline limit. Move their timestamps earlier.')
+        if required * sample_rate * channels * 3 + 4096 > MAX_WAV_BYTES:
+            raise ValueError('The clips exceed the WAV file-size limit. Move their timestamps earlier.')
+        return required
+
+
 def combine_timeline(batch_result, minutes, seconds, output_root):
     """Return a new PCM-24 WAV for the existing generated clips, or raise.
 
     ``minutes`` and ``seconds`` specify the final timeline duration, not padding
-    to add. Source timestamps are integer seconds. Partial batches are accepted
+    to add. Source timestamps may include fractional seconds. Partial batches are accepted
     and explicitly described in the returned status. Source audio is untouched.
     """
     minutes = _integer(minutes, 'Total minutes', 9999)
@@ -61,33 +107,12 @@ def combine_timeline(batch_result, minutes, seconds, output_root):
     except ValueError:
         requested = len(clips)
     partial = bool(batch_result.get('error')) or requested > len(clips) or batch_result.get('complete') is False
-    plans = []
-    overruns = []
-    sample_rate = channels = None
     # Keep source handles open through both passes. This also avoids repeated
     # opens of every source for each output block on long sparse timelines.
     with ExitStack() as stack:
-        for position, clip in enumerate(clips, 1):
-            if not isinstance(clip, dict) or not clip.get('audio'):
-                raise ValueError(f'Clip {position} has no generated audio file.')
-            index = clip.get('index', position)
-            start_seconds = _integer(clip.get('minutes'), f'Clip {index} minutes', 9999) * 60 + _integer(clip.get('seconds'), f'Clip {index} seconds', 59)
-            try:
-                reader = stack.enter_context(sf.SoundFile(Path(clip['audio']), 'r'))
-            except (OSError, RuntimeError, TypeError) as exc:
-                raise ValueError(f'Cannot read generated audio for clip {index}: {exc}') from exc
-            if reader.frames <= 0 or reader.samplerate <= 0 or reader.channels not in (1, 2):
-                raise ValueError(f'Clip {index} must contain nonempty mono or stereo audio.')
-            if sample_rate is None:
-                sample_rate, channels = reader.samplerate, reader.channels
-            elif (reader.samplerate, reader.channels) != (sample_rate, channels):
-                raise ValueError(f'Clip {index} has a different sample rate or channel count. All clips must match; audio is not resampled or downmixed.')
-            start = start_seconds * sample_rate
-            end = start + reader.frames
-            if end > total_seconds * sample_rate:
-                end_seconds = end / sample_rate
-                overruns.append((index, end_seconds))
-            plans.append((index, reader, start, end))
+        plans, sample_rate, channels = _timeline_sources(batch_result, stack)
+        overruns = [(index, end / sample_rate) for index, _, _, end in plans
+                    if end > total_seconds * sample_rate]
         if overruns:
             details = '; '.join(f'Clip {index} ends at {end:.3f} seconds' for index, end in overruns)
             required = max(end for _, end in overruns)

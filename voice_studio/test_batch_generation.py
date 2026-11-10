@@ -48,11 +48,18 @@ class BatchTests(unittest.TestCase):
 
     def test_validation(self):
         for rows in ([], None, [[0,0,'']]*101, [[0,0,' ']], [[0,0,'x'*2001]],
-                     [[-1,0,'x']], [[0,60,'x']], [[0,0.5,'x']], [[float('nan'),0,'x']],
+                     [[-1,0,'x']], [[0,60,'x']], [[float('nan'),0,'x']],
                      [[0,float('inf'),'x']], [[True,0,'x']], [[0,0,None]], [['x',0,'x']]):
             with self.subTest(rows=repr(rows)[:60]), self.assertRaises(ValueError):
                 validate_entries(rows)
         self.assertEqual(validate_entries([{'minutes':'2','seconds':'3','text':' hi '}])[0]['text'], 'hi')
+
+    def test_fractional_timestamp_labels_and_filenames(self):
+        self.assertEqual(validate_entries([[0,0.5,'x']])[0]['seconds'], 0.5)
+        result = self.run_rows([[1,2.125,'One.']])
+        self.assertIsNone(result['error'])
+        self.assertEqual(result['clips'][0]['label'], '01:02.125')
+        self.assertEqual(result['clips'][0]['filename'], '01m02.125s-001.wav')
 
     def test_partial_failure_keeps_completed_and_releases_once(self):
         self.generate.side_effect = [str(self.wav), RuntimeError('Out of memory'), str(self.wav)]

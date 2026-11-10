@@ -1,0 +1,16 @@
+const fs=require('fs'),vm=require('vm'),assert=require('node:assert/strict');
+const scope={};vm.createContext(scope);
+const file='clip-timing.js';if(fs.existsSync(file))vm.runInContext(fs.readFileSync(file,'utf8'),scope);
+assert.equal(typeof scope.sequentialClipRows,'function','actual-duration timestamp planner must exist');
+const rows=[{id:'a',minutes:0,seconds:59.5,text:'First',seed:17},{id:'b',minutes:7,seconds:10,text:'Second',seed:18},{id:'c',minutes:8,seconds:20,text:'Third',seed:19}];
+const metadata={clips:[{id:'c',text:'Third',frames:17,sample_rate:24000},{id:'a',text:'First',frames:12001,sample_rate:24000},{id:'b',text:'Second',frames:1,sample_rate:24000}]};
+const before=JSON.stringify(rows),plan=scope.sequentialClipRows(rows,metadata);
+assert.equal(JSON.stringify(rows),before,'planning cannot mutate editor before confirmation');assert.deepEqual({...plan[0]},rows[0]);
+assert.equal(plan[1].minutes,1);assert.equal(Math.round((plan[1].minutes*60+plan[1].seconds)*24000),1440001);
+assert.equal(Math.round((plan[2].minutes*60+plan[2].seconds)*24000),1440002);
+assert.equal(plan[2].seed,19);
+for(const invalid of [rows.slice(0,2),[rows[0],{...rows[1],id:'new'},rows[2]],[rows[0],{...rows[1],text:'Changed'},rows[2]],[rows[0],{...rows[1],id:'a'},rows[2]],[{...rows[0],seconds:60},rows[1],rows[2]]])assert.throws(()=>scope.sequentialClipRows(invalid,metadata));
+assert.throws(()=>scope.sequentialClipRows(rows,{error:'Cannot read generated audio'}),/Cannot read/);
+assert.throws(()=>scope.sequentialClipRows(rows,{clips:metadata.clips.map((c,i)=>i?c:{...c,sample_rate:44100})}),/sample rate/);
+assert.throws(()=>scope.sequentialClipRows(rows,{clips:metadata.clips.map((c,i)=>i?c:{...c,frames:0})}),/duration/);
+console.log('PASS stable-ID actual-frame planning, minute carry, single-sample precision, untouched first start/seeds/text, stale mapping/text/error rejection');

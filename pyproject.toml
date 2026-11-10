@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "qwen-tts"
 version = "0.1.1"
-description = "Qwen-TTS python package"
+description = "Qwen3-TTS engine with the Voxover local voice and commentary app"
 readme = "README.md"
 requires-python = ">=3.9"
 classifiers = [
@@ -32,8 +32,9 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/Qwen/Qwen3-TTS"
-Repository = "https://github.com/Qwen/Qwen3-TTS"
+Homepage = "https://github.com/AWADREE/Voxover"
+Repository = "https://github.com/AWADREE/Voxover"
+"Upstream engine" = "https://github.com/QwenLM/Qwen3-TTS"
 
 [project.scripts]
 qwen-tts-demo = "qwen_tts.cli.demo:main"

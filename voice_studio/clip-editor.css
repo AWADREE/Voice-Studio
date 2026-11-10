@@ -10,6 +10,13 @@ button:active { background:#223344; }
 button:focus-visible,input:focus-visible,textarea:focus-visible { outline:2px solid #8daac0; outline-offset:2px; }
 .clip-add { margin-top:20px; width:100%; }
 button:disabled { opacity:.5; cursor:default; }
+.clip-row-actions {display:flex;gap:12px;flex-wrap:wrap;}
+.clip-row-actions button {flex:1;}
+.clip-regenerate {background:#294458;color:#f5d99a;}
+.clip-seed-controls {display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 12px;align-items:end;}
+.clip-new-seed {min-height:43px;}
+.clip-seed-note {grid-column:1/-1;margin:0;color:#a8bdcd;font-size:12px;line-height:1.5;}
+[hidden] {display:none!important;}
 @media(prefers-reduced-motion:no-preference){.clip-row { animation:clip-appear .2s ease-out; } @keyframes clip-appear{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}}
 
 .clip-import {display:grid;gap:16px;padding:16px;margin-bottom:20px;border-radius:14px;background:#0b1c2c;}
@@ -19,3 +26,5 @@ button:disabled { opacity:.5; cursor:default; }
 .clip-import-actions {display:flex;gap:12px;}
 .clip-import [hidden] {display:none!important;}
 .clip-import-status {background:#102335;padding:12px;border-radius:10px;}
+
+.clip-operation-status {margin:0;color:#d9b96e;font-size:13px;line-height:1.5;overflow-wrap:anywhere;}
