@@ -9,7 +9,7 @@ function target(extra={}){
 const rows=[],list=target({querySelectorAll(){return rows;},appendChild(row){rows.push(row);},get children(){return rows;}}),add=target();
 function makeRow(){
  const fields={};
- for(const selector of ['[data-field="seed"]','[data-field="minutes"]','[data-field="seconds"]','textarea','.clip-new-seed','.clip-regenerate','.clip-remove','.clip-seed-controls','.clip-seed-note','.clip-operation-status']) fields[selector]=target();
+ for(const selector of ['[data-field="seed"]','[data-field="minutes"]','[data-field="seconds"]','textarea','.clip-reset-seed','.clip-new-seed','.clip-regenerate','.clip-remove','.clip-seed-controls','.clip-seed-note','.clip-operation-status']) fields[selector]=target();
  const row=target({querySelector(s){return fields[s];}});for(const item of Object.values(fields))item.parent=row;
  return row;
 }
@@ -41,6 +41,7 @@ assert(!shared.disabled);assert(singleControls.hidden);assert(rows.every(r=>!r.q
 toggle(true);
 assert(shared.disabled);assert.equal(shared.value,'42');assert(!singleControls.hidden);
 assert(rows.every(r=>!r.querySelector('.clip-seed-controls').hidden));
+assert(rows.every((_,i)=>Number(seed(i).value)!==42),'Enabling Randomize replaces untouched main-seed defaults.');
 let shown=rows.map((_,i)=>Number(seed(i).value));assert.equal(new Set(shown).size,2);
 assert(rows.every(r=>!r.querySelector('.clip-regenerate').hidden && r.querySelector('.clip-regenerate').textContent==='Generate'),'new clips can be generated individually');
 let request=batch();assert.deepEqual(Array.from(request[2],r=>r.seed),shown,'first request uses exactly displayed seeds');
@@ -58,7 +59,20 @@ click(rows[0].querySelector('.clip-regenerate'));const queued=captured.seed;
 click(rows[0].querySelector('.clip-new-seed'));const future=Number(seed(0).value);assert.notEqual(future,queued);
 run();assert.equal(events.at(-1).data.seed,queued,'queued seed must not follow draft changes');
 window.dispatchEvent({type:'voxover-batch'});assert.equal(Number(seed(0).value),future);
+// Reset prepares a future take and never rewrites the already accepted job.
+shared.value='96';click(rows[0].querySelector('.clip-reset-seed'));
+assert.equal(Number(seed(0).value),96);assert.equal(captured.seed,queued);
+run();assert.equal(events.at(-1).data.seed,queued,'Reset cannot change a queued snapshot.');
+window.dispatchEvent({type:'voxover-batch'});assert.equal(Number(seed(0).value),96,'Late generated seeds cannot overwrite Reset.');
+window.voxoverGenerationGuard.pending='one';
+window.dispatchEvent({type:'voxover-operation'});assert(seed(0).readOnly);
+shared.value='97';click(rows[0].querySelector('.clip-reset-seed'));
+assert.equal(Number(seed(0).value),97,'Reset during active generation prepares only the future draft.');
+assert.equal(captured.seed,queued);
 window.voxoverGenerationGuard=null;
+request=batch();assert.equal(request[2][0].seed,97,'Reset wins for the next randomized take.');
+assert.notEqual(batch()[2][0].seed,97,'The following take randomizes again.');
+shared.value='42';
 const firstSingle=Number(singleSeed.value);assert.equal(take()[12],firstSingle);assert.notEqual(take()[12],firstSingle);
 edit(singleSeed,321);assert.equal(take('design')[12],321);assert.notEqual(take('clone')[12],321);
 click(singleNew);const prepared=Number(singleSeed.value);assert.equal(take()[12],prepared);

@@ -1,5 +1,5 @@
 const fs=require('fs'),vm=require('vm'),assert=require('node:assert/strict');
-let mutation=null,frames=[],writes=0,rows=[],cards=[];
+let mutation=null,frames=[],writes=0,rows=[],cards=[],viewportWidth=1600,mediaQuery=null;
 const listeners=new Map();
 const style=()=>({setProperty(key,value){this[key]=value;}});
 class Node {
@@ -29,9 +29,17 @@ function flush(){let count=0;while(frames.length){assert(++count<8,'reconciliati
 function change(){listeners.get('voxover-rows')();flush();}
 rows=[row('b'),row('a'),row('new')];cards=[card('a'),card('b'),card('removed')];
 const originals=[...cards];
-const context={window,document,matchMedia:()=>mobile,requestAnimationFrame:fn=>frames.push(fn),MutationObserver:class{constructor(fn){mutation=fn;}observe(){}}};
+const context={window,document,matchMedia:query=>{mediaQuery=query;mobile.matches=viewportWidth<=Number(query.match(/max-width:\s*(\d+)px/)[1]);return mobile;},requestAnimationFrame:fn=>frames.push(fn),MutationObserver:class{constructor(fn){mutation=fn;}observe(){}}};
 const source=fs.readFileSync('clip-alignment.js','utf8');vm.runInNewContext('('+source+')()',context);flush();
 assert.deepEqual(rows.map(r=>r.style.gridRow),['2','3','4']);
+// The original Single layout stacks at 1299px; Multiple must switch paired
+// tracks at that same boundary, including the previously missed tablet range.
+const resize=width=>{viewportWidth=width;mobile.matches=width<=Number(mediaQuery.match(/max-width:\s*(\d+)px/)[1]);mobile.changed();flush();};
+resize(1299);
+assert.deepEqual(rows.map(r=>r.style.gridRow),['3','5','7'],'tablet layout must stack paragraph/player pairs');
+assert.deepEqual(cards.map(r=>r.style.gridRow),['6','4','11']);
+resize(1300);
+assert.deepEqual(rows.map(r=>r.style.gridRow),['2','3','4'],'desktop layout restores aligned shared rows');
 assert.deepEqual(cards.map(r=>r.style.gridRow),['3','2','6'],'matches use IDs, not DOM order or duplicate text');
 const heading=host.children.find(n=>n.id==='previous-clips-heading'),toggle=heading.children[0];
 assert.equal(toggle.type,'button');assert.equal(toggle.textContent,'Previous clips (1)');

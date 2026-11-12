@@ -12,7 +12,7 @@ class GenerationUiTests(unittest.TestCase):
   self.assertIn("gr.Accordion('Generation settings'",source)
  def test_native_players_and_always_cleanup(self):
   source=open(app.__file__,encoding='utf-8').read()
-  self.assertIn("player=gr.Audio(",source);self.assertIn('player.stop(',source)
+  self.assertIn("player=BatchAudio(",source);self.assertIn('player.stop(',source)
   self.assertIn('workflow_completed,inputs=',source)
   self.assertNotIn('.success(workflow_completed',source)
  def test_failure_preserves_outputs_and_reports_error(self):
@@ -45,13 +45,13 @@ class VoicePickerLoadingTests(unittest.TestCase):
   self.assertIn('failure',result[2]['value'])
 
 class DesignVoiceDownloadTests(unittest.TestCase):
- def test_visibility_requires_current_design_sample_and_not_busy(self):
+ def test_visibility_requires_current_design_sample_not_generation_idle(self):
   design={'source':'design_sample'}
   self.assertTrue(app.design_download_visibility(design,'design',False)['visible'])
-  self.assertFalse(app.design_download_visibility(design,'clone',False)['visible'])
+  self.assertTrue(app.design_download_visibility(design,'clone',False)['visible'])
   self.assertFalse(app.design_download_visibility({'source':'clone_reference'},'design',False)['visible'])
   self.assertFalse(app.design_download_visibility(None,'design',False)['visible'])
-  self.assertFalse(app.design_download_visibility(design,'design',True)['interactive'])
+  self.assertTrue(app.design_download_visibility(design,'design',True)['interactive'])
  def test_download_passes_corrected_transcript_and_rejects_other_sources(self):
   from unittest.mock import patch
   preview={'source':'design_sample'}
@@ -59,13 +59,14 @@ class DesignVoiceDownloadTests(unittest.TestCase):
    self.assertEqual(app.save_designed_voice(preview,'design',False,'actual words',True),('file','status'))
    save.assert_called_once_with(preview,False,'actual words',True)
   with self.assertRaises(Exception): app.save_designed_voice({'source':'clone_reference'},'design',False,'',False)
-  with self.assertRaises(Exception): app.save_designed_voice(preview,'generate',False,'',False)
- def test_save_button_is_gated_by_correction_and_design_button_is_inside_design(self):
+  with patch.object(app,'save_preview_corrected',return_value=('file','status')):
+   self.assertEqual(app.save_designed_voice(preview,'generate',False,'',False),('file','status'))
+ def test_design_save_button_is_gated_by_correction_and_download_is_inside_design(self):
   config=app.build_ui().get_config_file()
   elements={c['props'].get('elem_id'):c for c in config['components'] if c['props'].get('elem_id')}
   self.assertIn('design-download-voice',elements)
   self.assertFalse(elements['design-download-voice']['props']['visible'])
   from pathlib import Path
   css=(Path(app.ROOT)/'theme.css').read_text(encoding='utf-8-sig')
-  self.assertIn('#save-corrected-audition{display:none!important}',css)
+  self.assertIn('body:has(#voice-mode-workspace.design-mode) #save-corrected-audition{display:none!important}',css)
   self.assertIn('#listen-panel:has(#edit-transcript input:checked) #save-corrected-audition{display:flex!important}',css)

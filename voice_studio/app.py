@@ -19,6 +19,8 @@ import torch
 from qwen_tts import Qwen3TTSModel
 from qwen_tts.inference.qwen3_tts_model import VoiceClonePromptItem
 
+from batch_audio import BatchAudio
+
 def app_setting(name, default):
     """Prefer Voxover configuration, retaining legacy launcher compatibility."""
     return os.environ.get('VOXOVER_' + name) or os.environ.get('CADENTVOX_' + name) or os.environ.get('VOICE_STUDIO_' + name) or default
@@ -243,6 +245,7 @@ def generate_design(text, description, language, seed, release_after, *settings)
         raise gr.Error(str(exc)) from exc
     finally:
         if release_after:
+            model = None  # Drop local ownership before freeing the CUDA cache.
             release_model()
         LOCK.release()
 
@@ -315,6 +318,7 @@ def clone_audition(audio, transcript, include_transcript, text, instruction, lan
         raise gr.Error(str(exc)) from exc
     finally:
         if release_after:
+            model = None  # Drop local ownership before freeing the CUDA cache.
             release_model()
         LOCK.release()
 
@@ -451,7 +455,7 @@ def compose_controls(batch=False, clone_button=None, clone_busy=None):
     mode = entries = None
     instruction = gr.Textbox(label='Delivery instruction (optional)', lines=2, placeholder='Speak calmly and naturally, with quiet confidence.', elem_id='base-delivery-instruction')
     language = gr.Dropdown(LANGUAGES, value='English', label='Language')
-    seed, release, identity, settings = generation_settings_controls()
+    release, identity, settings = generation_settings_controls()
     if batch:
         mode = gr.State('single')
         with gr.Tabs(elem_id='commentary-mode-tabs'):
@@ -467,15 +471,15 @@ def compose_controls(batch=False, clone_button=None, clone_busy=None):
         else:
             single_tab.select(lambda: 'single', outputs=mode, queue=False, api_name=False)
             batch_tab.select(lambda: 'batch', outputs=mode, queue=False, api_name=False)
+    with gr.Row(elem_classes=['shared-seed-row']):
+        seed = gr.Number(value=42, precision=0, label='Seed', elem_classes=['shared-seed'])
+        gr.Checkbox(value=False, label='Randomize', elem_classes=['seed-randomize'])
     button = gr.Button('Generate', variant='primary', elem_classes=['primary-action'], elem_id='generate-commentary' if batch else None,interactive=not batch,preserved_by_key=['value','interactive'])
     return (text, instruction, language, seed, release, identity, button, settings, mode, entries) if batch else (text, instruction, language, seed, release, identity, button, settings)
 
 
 def generation_settings_controls(include_identity=True):
     with gr.Accordion('Generation settings', open=False, elem_classes=['generation-settings']):
-        with gr.Row(elem_classes=['shared-seed-row']):
-            seed = gr.Number(value=42, precision=0, label='Seed', info='Used for clips without their own seed. Use -1 for random.', elem_classes=['shared-seed'])
-            gr.Checkbox(value=False, label='Randomize', elem_classes=['seed-randomize'], info='Fresh seeds for each take. Per-clip edits apply to the next take.')
         release = gr.Checkbox(value=True, label='Release GPU memory after generation')
         identity = gr.Checkbox(value=False, label='Use voice identity only', info='Ignore reference delivery. This may reduce resemblance.', elem_id='base-identity-only') if include_identity else None
         gr.Markdown('### Speech sampling')
@@ -493,7 +497,7 @@ def generation_settings_controls(include_identity=True):
         settings = [max_tokens,temperature,top_k,top_p,repetition,sampling,sub_temp,sub_k,sub_p,sub_sampling]
         reset = gr.Button('Reset sampling defaults')
         reset.click(lambda: SETTING_DEFAULTS, outputs=settings, api_name=False)
-    return seed, release, identity, settings
+    return release, identity, settings
 
 
 def output_controls():
@@ -582,16 +586,24 @@ def save_preview_corrected(preview, confirmed, correction, use_correction=False)
             raise gr.Error('Enter the actual spoken words, or uncheck Edit transcript to use the captured commentary.')
         if preview:
             preview = dict(preview, transcript=correction.strip())
-    return save_preview_display(preview, confirmed)
+    # Keep the requested audition while another model operation finishes. Saving
+    # a designed sample needs Base encoding, so it cannot run beside generation.
+    # Both download controls already show their own busy state while this waits.
+    with LOCK:
+        return save_preview_display(preview, confirmed)
 
 
-def design_download_visibility(preview, workflow, busy):
-    valid = workflow == 'design' and isinstance(preview, dict) and preview.get('source') == 'design_sample'
-    return gr.update(visible=valid, interactive=valid and not busy)
+def design_download_visibility(preview, workflow, busy=False):
+    # The Design panel already follows the visual mode tabs. The hidden Gradio
+    # workflow value can lag those tabs, so eligibility follows the audition.
+    valid = isinstance(preview, dict) and preview.get('source') == 'design_sample'
+    # An existing audition is downloadable independently of the next generation.
+    # The save action owns its own busy lifecycle.
+    return gr.update(visible=valid, interactive=valid)
 
 
 def save_designed_voice(preview, workflow, confirmed, correction, use_correction):
-    if workflow != 'design' or not isinstance(preview, dict) or preview.get('source') != 'design_sample':
+    if not isinstance(preview, dict) or preview.get('source') != 'design_sample':
         raise gr.Error('Generate a Design sample before downloading its voice.')
     return save_preview_corrected(preview, confirmed, correction, use_correction)
 
@@ -1366,13 +1378,16 @@ def build_ui():
                                 return gr.update(visible=True) if (result or {}).get('clips') else gr.skip()
                             batch_result.change(show_generated_batch,batch_result,batch_panel,queue=False,api_name=False)
                             gr.HTML('<div class="clip-placeholders"></div>', elem_id='clip-placeholders')
-                            @gr.render(inputs=batch_result)
-                            def render_clips(result):
+                            rendered_audio_paths = gr.State(set())
+                            @gr.render(inputs=[batch_result, rendered_audio_paths], triggers=[batch_result.change])
+                            def render_clips(result, rendered_paths=None):
+                                previous_paths = set(rendered_paths or ())
                                 for clip in (result or {}).get('clips', []):
                                     updated = clip.get('id') and clip.get('id') == (result or {}).get('highlight_id')
                                     with gr.Column(elem_classes=['batch-clip']+(['batch-clip-updated'] if updated else []), elem_id='generated-clip-'+clip['id'] if clip.get('id') else None, key=clip['audio']):
                                         gr.Markdown('### '+clip['label']+(' - Updated' if updated else ''))
-                                        player=gr.Audio(value=clip['audio'], type='filepath', interactive=False, label=clip['filename'], key='audio-'+clip['audio'], elem_classes=['studio-audio-output','studio-audio','batch-audio'], waveform_options=gr.WaveformOptions(waveform_color='#6e8b9f',waveform_progress_color='#d9b96e',trim_region_color='#d9b96e30'))
+                                        player=BatchAudio(value=clip['audio'], type='filepath', interactive=False, label=clip['filename'], key='audio-'+clip['audio'], preserved_by_key=['value','playback_position','waveform_options'], elem_classes=['studio-audio-output','studio-audio','batch-audio'], waveform_options=gr.WaveformOptions(waveform_color='#6e8b9f',waveform_progress_color='#d9b96e',trim_region_color='#d9b96e30'))
+                                        player.preserve_media = clip['audio'] in previous_paths
                                         player.stop(fn=None,js='() => window.voxoverBatchPlayback?.finished('+str(clip['index']-1)+')',api_name=False,key='ended-'+clip['audio'])
                                         gr.DownloadButton('Download '+clip['label'], value=clip['audio'])
                                         gr.HTML('<div class="wrap clip-pending-surface">'
@@ -1380,6 +1395,9 @@ def build_ui():
                                             f'<div class="progress-bar-wrap" role="progressbar" aria-label="Regenerating clip {clip["index"]}"><div class="progress-bar"></div></div>'
                                             '<div class="meta-text clip-pending-elapsed" aria-hidden="true">processing | 0.0s</div></div>',
                                             elem_classes=['clip-regeneration-loader'])
+                                if rendered_paths is not None:
+                                    rendered_paths.clear()
+                                    rendered_paths.update(c['audio'] for c in (result or {}).get('clips', []))
                         with gr.Column(visible=False, elem_classes=['studio-presence'], elem_id='audition-save-actions') as preview_actions:
                             preview_confirm = gr.State(False)  # Compatibility slot; no approval UI or save gate.
                             use_correction = gr.Checkbox(label='Correct transcript before saving', value=False, interactive=True, elem_id='edit-transcript')
@@ -1402,6 +1420,8 @@ def build_ui():
                     js="(...args) => { args[0] = document.querySelector('#voice-mode-tabs button[aria-pressed=\"true\"]')?.dataset.voiceMode || args[0]; args[1] = document.querySelector('#commentary-mode-tabs [role=\"tab\"][aria-selected=\"true\"]')?.textContent.trim() === 'Multiple' ? 'batch' : 'single'; return window.voxoverSeedRandomizer?.prepare(args) || args; }").then(
                     workflow_completed,inputs=[workflow,commentary_mode,clip_entries,voice,ref_s,transcript_s,xvec_s,design_description,text,*settings],
                     outputs=[button,generation_notice,generation_busy],queue=False,api_name=False).then(
+                    design_download_visibility,inputs=[preview_state,workflow],outputs=design_download,
+                    queue=False,show_progress='hidden',api_name=False).then(
                     batch_editor_metadata,inputs=batch_result,outputs=batch_metadata,queue=True,show_progress='hidden',api_name=False).then(
                     fn=None,js="() => window.voxoverGenerationGuard?.finish()",api_name=False)
                 # Keep the established non-streaming API's inputs/output arity.
@@ -1437,8 +1457,12 @@ def build_ui():
                     begin=begin_clone_selection,token=clone_ticket,adapter=clone_submission,finish_mode=commentary_mode,busy_state=clone_busy)
                 commentary_mode.change(lambda mode,busy:gr.skip() if busy else gr.update(interactive=mode=='single',value=('Clone reference & generate commentary' if mode=='single' else 'Switch to Single commentary to clone')),[commentary_mode,clone_busy],direct_preview,api_name=False,queue=False)
                 bind_busy_action(save_preview,save_preview_corrected,[preview_state,preview_confirm,correction,use_correction],[preview_file,preview_status],'Save audition as voice .pt','Saving voice...',1)
-                gr.on(triggers=[preview_state.change,workflow.change,generation_busy.change], fn=design_download_visibility, inputs=[preview_state,workflow,generation_busy], outputs=design_download, queue=False, show_progress='hidden', api_name=False)
-                design_download.click(save_designed_voice, inputs=[preview_state,workflow,preview_confirm,correction,use_correction], outputs=[design_file,design_save_status], api_name=False, concurrency_limit=1, trigger_mode='once').success(fn=None, js="() => { document.querySelector('#design-voice-file a[download]')?.click(); }", api_name=False)
+                gr.on(triggers=[preview_state.change,workflow.change], fn=design_download_visibility, inputs=[preview_state,workflow], outputs=design_download, queue=False, show_progress='hidden', api_name=False)
+                bind_busy_action(design_download,save_designed_voice,[preview_state,workflow,preview_confirm,correction,use_correction],[design_file,design_save_status],'Download voice','Saving voice...',1)
+                # Use the returned FileData URL, not a link that Svelte may not have
+                # mounted yet. Keep the visible file as a manual-download fallback.
+                for voice_file in (design_file, preview_file):
+                    voice_file.change(fn=None, inputs=voice_file, js=ui_asset_text('voice-download.js'), api_name=False, queue=False)
                 # Busy UI adapters use variadic signatures and extra UI-only outputs.
                 # Keep the existing public API contracts attached to the original
                 # typed callbacks so named clients and return tuple arity stay valid.
@@ -1495,6 +1519,7 @@ def build_ui():
         bind_busy_action(confirm,None,[folder_kind,folder_path],[output_folder,voice_folder,storage_status,folder_dialog,folder_note],'Use this folder','Saving folder...',4,adapter=commit_storage_submission)
         cancel_folder.click(lambda:gr.update(visible=False),outputs=folder_dialog,api_name=False,queue=False)
         app.load(fn=None, js=ui_asset_text('seed-randomizer.js').replace('// SEED_HELPERS', ui_asset_text('clip-seeds.js')))
+        app.load(fn=None, js=ui_asset_text('seed-help.js'))
         app.load(fn=None, js=ui_asset_text('number-wheel.js'))
         app.load(fn=None, js=ui_asset_text('generation-guard.js'))
         app.load(fn=None, js=ui_asset_text('clip-loading.js'))

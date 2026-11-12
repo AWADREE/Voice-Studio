@@ -14,7 +14,10 @@ button:disabled { opacity:.5; cursor:default; }
 .clip-row-actions button {flex:1;}
 .clip-regenerate {background:#294458;color:#f5d99a;}
 .clip-seed-controls {display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 12px;align-items:end;}
-.clip-new-seed {min-height:43px;}
+.clip-seed-actions {display:flex;gap:8px;}
+.clip-new-seed,.clip-reset-seed {min-height:43px;white-space:nowrap;}
+.clip-seed-actions>button {margin:0!important;}
+@media(max-width:480px){.clip-seed-controls {grid-template-columns:minmax(0,1fr);}.clip-seed-actions {justify-content:flex-end;}}
 .clip-seed-note {grid-column:1/-1;margin:0;color:#a8bdcd;font-size:12px;line-height:1.5;}
 [hidden] {display:none!important;}
 @media(prefers-reduced-motion:no-preference){.clip-row { animation:clip-appear .2s ease-out; } @keyframes clip-appear{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}}

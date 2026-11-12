@@ -39,6 +39,33 @@ class SampleFirstTests(unittest.TestCase):
                     self.assertIn('original reference audio',status)
                     self.assertEqual(len(list(voices.glob('*.pt'))),1)
 
+    def test_auditions_drop_local_model_before_releasing_gpu_cache(self):
+        # A model still referenced by the callback cannot be reclaimed by
+        # release_model, leaving too little free VRAM for the next audition.
+        import weakref
+        item = app.read_voice(TEST_VOICE)
+        references = []
+        class Model:
+            def create_voice_clone_prompt(self, **kwargs):
+                return [item]
+            def generate_voice_clone(self, **kwargs):
+                return [np.zeros(2400, dtype=np.float32)], 24000
+            generate_voice_design = generate_voice_clone
+        def load(kind):
+            model = Model()
+            references.append(weakref.ref(model))
+            return model
+        def release():
+            self.assertIsNone(references[-1](), 'Audition still holds the model during GPU cache cleanup')
+        with tempfile.TemporaryDirectory() as folder:
+            with patch.object(app, 'OUTPUTS', Path(folder)), patch.object(app, 'load_model', side_effect=load), patch.object(app, 'release_model', side_effect=release):
+                for mode in ('clone', 'design'):
+                    with self.subTest(mode=mode):
+                        if mode == 'clone':
+                            app.clone_audition('ref.wav', 'Original words', True, 'Audition words', '', 'English', 4, True, *app.SETTING_DEFAULTS)
+                        else:
+                            app.generate_design('Audition words', 'Clear synthetic narrator', 'English', 4, True, *app.SETTING_DEFAULTS)
+
     def test_design_is_single_sample_and_only_explicit_save_encodes_it(self):
         fake=MagicMock();fake.generate_voice_design.return_value=([np.zeros(2400,dtype=np.float32)],24000)
         with tempfile.TemporaryDirectory() as folder:

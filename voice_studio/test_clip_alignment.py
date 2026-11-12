@@ -53,14 +53,15 @@ class ClipAlignmentLayoutTests(unittest.TestCase):
         self.assertEqual(len(audio),1)
         self.assertNotIn('#listen-panel:has(>.studio-audio-output',self.css)
         self.assertIn('#listen-top-controls:has(>.studio-audio-output>.wrap:not(.hide))>',self.css)
-        self.assertIn('#listen-panel:has(#listen-top-controls>.studio-audio-output>.wrap:not(.hide))>:is(#batch-output,#audition-save-actions)',self.css)
+        self.assertIn('#listen-panel:has(#listen-top-controls>.studio-audio-output>.wrap:not(.hide))>#batch-output',self.css)
+        self.assertIn('body:has(#voice-mode-workspace.design-mode) #production-workspace:not(.multiple-mode) #listen-panel:has(#listen-top-controls>.studio-audio-output>.wrap:not(.hide))>#audition-save-actions',self.css)
         self.assertIn('#listen-top-controls>.studio-audio-output:has(>.wrap:not(.hide))',self.css)
     def test_mobile_controls_use_separate_tracks_without_specificity_conflict(self):
         # The wide :is rule must not force both controls onto row 1. A mobile
         # inherited variable switches only Listen while preserving natural height.
         self.assertIn('#production-workspace.multiple-mode #generate-top-controls {grid-row:1;}',self.css)
         self.assertIn('#production-workspace.multiple-mode #listen-top-controls {grid-row:var(--listen-control-track,1);}',self.css)
-        mobile=self.css[self.css.index('@media(max-width:900px)'):]
+        mobile=self.css[self.css.index('@media(max-width:1299px){\n #production-workspace.multiple-mode'):]
         self.assertIn('--listen-control-track:2;',mobile.split('\n}',1)[0])
         self.assertNotIn(':is(#generate-top-controls,#listen-top-controls) {grid-row:1',self.css)
 
@@ -77,8 +78,8 @@ class ClipAlignmentLayoutTests(unittest.TestCase):
     def test_layout_has_shared_tracks_without_geometry_measurement(self):
         js=(Path(app.ROOT)/'clip-alignment.js').read_text()
         self.assertIn('grid-template-rows:subgrid',self.css)
-        self.assertIn('@media(max-width:900px)',self.css)
-        self.assertIn("matchMedia('(max-width: 900px)')",js)
+        self.assertIn('@media(max-width:1299px)',self.css)
+        self.assertIn("matchMedia('(max-width: 1299px)')",js)
         self.assertNotIn('getBoundingClientRect',js)
         self.assertNotIn('ResizeObserver',js)
         self.assertNotIn('appendChild(card)',js)

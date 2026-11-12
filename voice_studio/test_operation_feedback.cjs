@@ -10,3 +10,8 @@ button.textContent='Unload experimental model';callback();assert(!button.disable
 button.textContent='Cloning & generating...';callback();assert(button.disabled);
 button.textContent='Switch to Single commentary to clone';callback();assert(button.disabled); // mode restriction preserved
 console.log('PASS operation guard busy race and mode restriction');
+// Saving an audition must recover even when Svelte restores interactive first.
+button.textContent='Saving voice...';callback();assert(button.disabled);
+button.disabled=false;callback();assert(button.disabled);
+button.textContent='Save audition as voice .pt';callback();
+assert(!button.disabled, 'Audition save must be usable again after completion');

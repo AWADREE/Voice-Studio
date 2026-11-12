@@ -1,0 +1,14 @@
+const fs=require('fs'),vm=require('vm'),assert=require('assert');
+const source=fs.readFileSync('voice-download.js','utf8');
+const downloads=[];
+const context={document:{createElement(tag){assert.equal(tag,'a');return {click(){downloads.push({href:this.href,download:this.download});},remove(){}};},body:{appendChild(){}}}};
+const download=vm.runInNewContext('('+source+')',context);
+download(null);
+assert.equal(downloads.length,0,'Clearing a preview must not download anything');
+download({path:'E:/voices/voice.pt',url:'/gradio_api/file=cache/voice.pt',orig_name:'voice.pt'});
+assert.deepEqual(downloads,[{href:'/gradio_api/file=cache/voice.pt',download:'voice.pt'}]);
+download({path:'E:/voices/next.pt',url:'/gradio_api/file=cache/next.pt',orig_name:'next.pt'});
+assert.equal(downloads.length,2,'Each newly saved voice must download without needing a rendered file link');
+download({path:'missing-url.pt'});
+assert.equal(downloads.length,2,'Do not invent a URL when the server returns no file');
+console.log('PASS voice downloads from successful file results without DOM rendering races');

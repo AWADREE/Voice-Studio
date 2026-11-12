@@ -6,28 +6,35 @@ function target(extra={}) {
     dispatchEvent(e){e.target??=this;for(const fn of handlers[e.type]||[])fn(e);if(e.bubbles)this.parent?.dispatchEvent(e);},
     setAttribute(){},focus(){},reportValidity:()=>true},extra);
 }
-function editor(initial) {
+function editor(initial, options={}) {
+  const shared=options.shared===null?null:target({value:options.shared ?? '42'});
   let rows=[],identity=0;
-  const list=target({querySelectorAll(){return rows.filter(row=>!row.dataset.removing);},appendChild(row){rows.push(row);},
+  const seedVisibilityAtInsertion=[];
+  const list=target({querySelectorAll(){return rows.filter(row=>!row.dataset.removing);},appendChild(row){seedVisibilityAtInsertion.push(!row.querySelector('.clip-seed-controls').hidden);rows.push(row);},
     replaceChildren(){rows=[];},get children(){return rows;}}),add=target();
   const imports={};
   for(const key of ['.clip-source','.clip-split','.clip-confirm','.clip-import-status','.clip-undo','.clip-replace','.clip-cancel'])imports[key]=target();
   imports['.clip-confirm'].hidden=true;
   function makeRow(){
     const fields={};
-    for(const key of ['[data-field="seed"]','[data-field="minutes"]','[data-field="seconds"]','textarea','.clip-new-seed','.clip-regenerate','.clip-remove','.clip-seed-controls','.clip-seed-note','.clip-operation-status'])fields[key]=target();
+    for(const key of ['[data-field="seed"]','[data-field="minutes"]','[data-field="seconds"]','textarea','.clip-reset-seed','.clip-new-seed','.clip-regenerate','.clip-remove','.clip-seed-controls','.clip-seed-note','.clip-operation-status'])fields[key]=target();
     const row=target({querySelector(s){return fields[s];},remove(){rows=rows.filter(r=>r!==row);}});
+    Object.defineProperty(row,'innerHTML',{set(html){
+      const opening=html.match(/<div\s+class="clip-seed-controls"[^>]*>/)?.[0];
+      assert(opening,'Every rendered clip has its seed controls.');
+      fields['.clip-seed-controls'].hidden=/\shidden(?:[\s=>])/.test(opening);
+    }});
     for(const field of Object.values(fields))field.parent=row;
     return row;
   }
   const props={value:initial},window=target(),triggered=[];
   const context={window,props,trigger:(type,data)=>triggered.push({type,data}),Uint32Array,element:{querySelector:s=>s==='.clip-list'?list:add},
-    document:{createElement:makeRow,querySelector:selector=>selector==='#generate-panel .shared-seed input'?{value:'42'}:null,getElementById:id=>id==='clip-import'?{querySelector:s=>imports[s]}:null},
+    document:{createElement:makeRow,querySelector:selector=>selector==='#generate-panel .shared-seed input'?shared:null,getElementById:id=>id==='clip-import'?{querySelector:s=>imports[s]}:null},
     crypto:{randomUUID:()=>String(++identity),getRandomValues:array=>{array[0]=123;return array;}},Event:class{constructor(type,options={}){this.type=type;Object.assign(this,options);}},
     requestAnimationFrame:fn=>fn(),matchMedia:()=>({matches:true})};
   vm.runInNewContext(fs.readFileSync('clip-seeds.js','utf8')+'\n'+(fs.existsSync('clip-timing.js')?fs.readFileSync('clip-timing.js','utf8'):'')+'\n'+fs.readFileSync('paragraph-timing.js','utf8')+'\n'+fs.readFileSync('clip-editor.js','utf8'),context);
   const click=el=>el.dispatchEvent({type:'click'});
-  return {props,window,imports,triggered,regenerate:index=>click(rows[index].querySelector('.clip-regenerate')),get rows(){return rows;},add:()=>click(add),
+  return {props,window,imports,triggered,shared,seedVisibilityAtInsertion,reset:index=>click(rows[index].querySelector('.clip-reset-seed')),regenerate:index=>click(rows[index].querySelector('.clip-regenerate')),get rows(){return rows;},add:()=>click(add),
     split(){imports['.clip-source'].value='A'.repeat(100)+'\n\nSecond';click(imports['.clip-split']);},
     cancel:()=>click(imports['.clip-cancel']),
     remove(index){click(rows[index].querySelector('.clip-remove'));},
@@ -80,7 +87,7 @@ confirmation=null;e.regenerate(1);assert.equal(confirmation,null,'duplicate queu
 queued.length=0;e.regenerate(1);e.window.voxoverBatchMetadata.batch_id='new';confirmation.action();assert.equal(queued.length,0,'new batch invalidates open regeneration confirmation');
 console.log('PASS individual queued regeneration confirmation, cancel preserves seed/audio, duplicate and replaced-batch guards');
 
-e=editor([{id:'new-a',minutes:0,seconds:1,text:'First new clip'},{id:'new-b',minutes:0,seconds:5,text:'Second new clip'}]);
+e=editor([{id:'new-a',minutes:0,seconds:1,text:'First new clip'},{id:'new-b',minutes:0,seconds:5,text:'Second new clip'}],{shared:null});
 const firstJobs=[];confirmation=null;
 e.window.voxoverGenerationGuard={pending:null,position:()=>0,job:()=>null,confirmAction:o=>confirmation=o,enqueue:(id,run,data,valid)=>firstJobs.push({id,run,data,valid})};
 assert.equal(e.rows[0].querySelector('.clip-regenerate').textContent,'Generate');assert(!e.rows[0].querySelector('.clip-regenerate').hidden);
@@ -116,3 +123,46 @@ assert.equal(e.rows[1].querySelector('.clip-remove').disabled,true);
 e.regenerate(0);confirmation.action();assert.equal(streamJobs.length,1);assert.equal(streamJobs[0].data.batch_id,'stream');
 e.regenerate(1);assert.equal(streamJobs.length,1);assert.equal(e.triggered.length,0);
 console.log('PASS streaming row eligibility, guarded pre-start, removal lock and captured batch identity');
+
+// Seed controls are visible at insertion, before generation-state refresh runs.
+e=editor([{id:'initial',minutes:0,seconds:1,text:''}]);
+assert.deepEqual(e.seedVisibilityAtInsertion,[true],'Initial seed and New seed controls must be visible on their first render.');
+e.add();assert(e.seedVisibilityAtInsertion.every(Boolean),'Added clip seeds are visible before any Randomize or generation event.');
+e=editor([{id:'initial',minutes:0,seconds:1,text:''}]);e.split();
+assert.equal(e.seedVisibilityAtInsertion.length,3);
+assert(e.seedVisibilityAtInsertion.every(Boolean),'Every split clip exposes seed controls immediately.');
+const visibleSeeds=()=>e.rows.every(row=>!row.querySelector('.clip-seed-controls').hidden);
+assert(visibleSeeds());
+e.window.voxoverSeedRandomizer={enabled:true};e.window.dispatchEvent({type:'voxover-randomize'});assert(visibleSeeds());
+e.window.voxoverSeedRandomizer.enabled=false;e.window.dispatchEvent({type:'voxover-randomize'});assert(visibleSeeds());
+const clipId=e.rows[0].dataset.clipId;
+e.window.voxoverGenerationGuard={pending:clipId,busy:()=>true,position:()=>0,job:()=>({seed:123})};
+e.window.dispatchEvent({type:'voxover-operation'});assert(visibleSeeds(),'Active generation does not hide seed controls.');
+assert(e.rows[0].querySelector('[data-field="seed"]').readOnly,'Active seed keeps its existing read-only protection.');
+e.window.voxoverGenerationGuard.pending=null;
+e.window.voxoverBatchMetadata={ids:[clipId],seeds:{[clipId]:123}};
+e.window.dispatchEvent({type:'voxover-batch'});assert(visibleSeeds(),'Generated clips retain visible seed controls.');
+console.log('PASS seed controls visible immediately for initial, added, split, Randomize on/off, active and completed clips');
+
+// New drafts copy the current main seed without replacing saved/manual drafts.
+e=editor([{id:'default',minutes:0,seconds:1,text:''}],{shared:'73'});
+assert.equal(Number(e.rows[0].querySelector('[data-field="seed"]').value),73,'Initial clips display the current main seed.');
+assert.equal(e.props.value[0].seed,73,'The displayed default is captured in the generation draft.');
+e.shared.value='84';e.add();
+assert.deepEqual(Array.from(e.props.value,r=>r.seed),[73,84],'New clips use the latest main seed without rewriting existing overrides.');
+e.reset(0);assert.equal(e.props.value[0].seed,84,'Reset copies the current main seed.');
+e.shared.value='-1';e.reset(0);assert.equal(e.props.value[0].seed,-1,'Reset preserves the supported random sentinel.');
+for(const invalid of ['', '-2', '1.5', '9007199254740992']){
+  e.shared.value=invalid;e.reset(0);assert.equal(e.props.value[0].seed,-1,'Invalid main seeds cannot destroy the current clip draft.');
+  assert.equal(e.rows[0].querySelector('.clip-operation-status').hidden,false);
+}
+e.shared.value='0';e.reset(0);assert.equal(e.props.value[0].seed,0,'Zero is a valid reset seed.');
+assert.equal(e.rows[0].querySelector('.clip-operation-status').hidden,true);
+e=editor([{id:'saved',minutes:0,seconds:1,text:'',seed:999}],{shared:'73'});
+assert.equal(e.props.value[0].seed,999,'Restored explicit seeds are never defaulted again.');
+e=editor([{id:'pristine',minutes:0,seconds:1,text:''}],{shared:'85'});e.split();
+assert.deepEqual(Array.from(e.props.value,r=>r.seed),[85,85],'Every split clip starts from the current main seed.');
+e=editor([{id:'delayed',minutes:0,seconds:1,text:''}],{shared:''});
+assert(!('seed' in e.props.value[0]));e.shared.value='86';e.window.dispatchEvent({type:'voxover-randomize'});
+assert.equal(e.props.value[0].seed,86,'Late main input mounting initializes untouched drafts.');
+console.log('PASS main-seed defaults for initial/added/split/late rows, preserved saved drafts, current-value reset and invalid/zero/random bounds');

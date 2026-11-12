@@ -455,14 +455,16 @@ footer[aria-label="Gradio footer navigation"]>button[data-inline-utility-trigger
 #listen-top-controls>.studio-audio-output>.wrap:not(.hide){background:#091a2a!important;border:0!important;box-shadow:none!important;border-radius:10px!important}
 @starting-style{#listen-top-controls>.studio-audio-output>.wrap:not(.hide){opacity:0}}
 #listen-top-controls>:is(.studio-wav-output,.studio-output-status,#batch-output,#timeline-combine,#audition-save-actions){transition:opacity .24s ease,display .24s allow-discrete;opacity:1}
-#listen-top-controls:has(>.studio-audio-output>.wrap:not(.hide))>:is(.studio-wav-output,.studio-output-status,#batch-output,#timeline-combine,#audition-save-actions){display:none!important;opacity:0!important}
+#listen-top-controls:has(>.studio-audio-output>.wrap:not(.hide))>:is(.studio-wav-output,.studio-output-status,#batch-output,#timeline-combine){display:none!important;opacity:0!important}
+body:has(#voice-mode-workspace.design-mode) #listen-top-controls:has(>.studio-audio-output>.wrap:not(.hide))>#audition-save-actions{display:none!important;opacity:0!important}
 @starting-style{#listen-top-controls>:is(.studio-wav-output,.studio-output-status,#batch-output,#timeline-combine,#audition-save-actions){opacity:0}}
 @media(prefers-reduced-motion:reduce){
   #listen-top-controls>.studio-audio-output>:not(.wrap),#listen-top-controls>.studio-audio-output>.wrap,#listen-top-controls>:is(.studio-wav-output,.studio-output-status,#batch-output,#timeline-combine,#audition-save-actions){transition-duration:0s!important}
 }
 
-/* Transcript edits are saved deliberately; normal Design download is separate. */
-#save-corrected-audition{display:none!important}
+/* Clone always exposes explicit saving, including while the next take generates.
+   Design has its own download control and only needs this button for corrections. */
+body:has(#voice-mode-workspace.design-mode) #save-corrected-audition{display:none!important}
 #listen-panel:has(#edit-transcript input:checked) #save-corrected-audition{display:flex!important}
 body:has(#voice-mode-workspace.generate-mode) #audition-save-actions{display:none!important}
 
@@ -496,7 +498,8 @@ body:has(#voice-mode-workspace.generate-mode) #audition-save-actions{display:non
 
 /* Multiple's semantic columns share natural CSS row sizing, never measured spacers. */
 #production-workspace:not(.multiple-mode) #clip-editor {display:none!important;}
-#production-workspace.multiple-mode {grid-template-columns:minmax(0,1fr) minmax(0,1fr)!important;grid-template-rows:repeat(var(--clip-track-count,3),auto);align-items:stretch!important;row-gap:20px!important;}
+/* Keep the original shared column widths; Multiple only adds aligned row tracks. */
+#production-workspace.multiple-mode {grid-template-rows:repeat(var(--clip-track-count,3),auto);align-items:stretch!important;row-gap:20px!important;}
 #production-workspace.multiple-mode #voice-mode-workspace {display:contents!important;}
 #production-workspace.multiple-mode #reference-panel {display:none!important;}
 #production-workspace.multiple-mode :is(#generate-panel,#listen-panel) {display:grid!important;grid-template-rows:subgrid;grid-row:1/-1;gap:20px!important;min-width:0!important;}
@@ -517,24 +520,27 @@ body:has(#voice-mode-workspace.generate-mode) #audition-save-actions{display:non
 .clip-empty-player {display:flex;align-items:center;justify-content:center;background:#10233580;color:#9fb7ca;border-radius:14px;padding:24px;text-align:center;}
 #previous-clips-heading {align-self:end;margin:0;}
 #production-workspace.multiple-mode .clip-add {align-self:start;margin:0;}
-@media(max-width:900px){
+@media(max-width:1299px){
  #production-workspace.multiple-mode {grid-template-columns:minmax(0,1fr)!important;--listen-control-track:2;}
  #production-workspace.multiple-mode :is(#generate-panel,#listen-panel) {grid-column:1;background:transparent!important;border:0!important;padding:0!important;pointer-events:none;}
  #production-workspace.multiple-mode :is(#generate-top-controls,#listen-top-controls,.clip-row,.clip-add,.batch-clip,.clip-empty-player) {pointer-events:auto;}
 }
 
 #production-workspace.multiple-mode :is(#clip-editor .html-container > .prose,#clip-placeholders .html-container > .prose) {display:contents!important;}
-#production-workspace:not(.multiple-mode) #batch-playback-controls {display:none!important;}
+/* Generated players, not draft rows/loaders, make batch playback available. */
+#production-workspace:not(.multiple-mode) #batch-playback-controls,
+#production-workspace:not(:has(#batch-output .batch-audio)) #batch-playback-controls {display:none!important;}
 #production-workspace.multiple-mode #batch-output {min-width:0!important;}
 #production-workspace.multiple-mode :is(#generate-panel,#listen-panel,#clip-editor,#batch-output) {grid-template-columns:minmax(0,1fr)!important;}
 #production-workspace.multiple-mode :is(#generate-top-controls,#listen-top-controls,.clip-row,.batch-clip,.clip-empty-player,.clip-add,#previous-clips-heading) {grid-column:1;}
 
-#production-workspace:not(.multiple-mode) #listen-panel:has(#listen-top-controls>.studio-audio-output>.wrap:not(.hide))>:is(#batch-output,#audition-save-actions) {visibility:hidden!important;pointer-events:none!important;}
+#production-workspace:not(.multiple-mode) #listen-panel:has(#listen-top-controls>.studio-audio-output>.wrap:not(.hide))>#batch-output {visibility:hidden!important;pointer-events:none!important;}
+body:has(#voice-mode-workspace.design-mode) #production-workspace:not(.multiple-mode) #listen-panel:has(#listen-top-controls>.studio-audio-output>.wrap:not(.hide))>#audition-save-actions {visibility:hidden!important;pointer-events:none!important;}
 
 #production-workspace:not(.multiple-mode) :is(#batch-status,#batch-output) {display:none!important;}
 
 /* Paint Listen content, not unused shared-track height; keep section borders transparent. */
-#production-workspace.multiple-mode #listen-panel {background:transparent!important;border-color:transparent!important;}
+#production-workspace.multiple-mode #listen-panel {background:transparent!important;border:0!important;padding:0!important;}
 #production-workspace.multiple-mode #listen-top-controls {background:rgba(7,20,33,.88)!important;border:1px solid transparent!important;border-radius:14px!important;padding:24px!important;box-sizing:border-box;}
 #production-workspace.multiple-mode #listen-panel .batch-clip {background:rgba(7,20,33,.88)!important;border:1px solid transparent!important;border-radius:14px!important;padding:20px!important;box-sizing:border-box;}
 #timeline-minimum-status p {font-size:12px!important;line-height:1.5!important;color:#acbfd0!important;}
@@ -545,13 +551,23 @@ body:has(#voice-mode-workspace.generate-mode) #audition-save-actions{display:non
 .previous-clips-toggle::before {content:'▸';}
 .previous-clips-toggle[aria-expanded="true"]::before {content:'▾';}
 .previous-clips-toggle:focus-visible {outline:2px solid #a9cce6;outline-offset:3px;}
-@media(max-width:900px){#production-workspace.multiple-mode #listen-top-controls {padding:20px!important;}}
+@media(max-width:1299px){#production-workspace.multiple-mode #listen-top-controls {padding:20px!important;}}
 
 #production-workspace.multiple-mode #listen-panel .batch-clip-updated {background:linear-gradient(110deg,#d9b96e10,transparent),rgba(7,20,33,.88)!important;}
 
 /* Random seeds are visible per clip; the shared seed is retained when disabled. */
-.shared-seed-row {align-items:center!important;}
-.shared-seed-row .seed-randomize {min-width:150px!important;flex:0 1 190px!important;}
+.shared-seed-row {--seed-control-height:46px;align-items:end!important;gap:12px!important;flex-wrap:nowrap!important;overflow:visible!important;}
+.shared-seed-row>.form {display:grid!important;grid-template-columns:minmax(0,1fr) auto;align-items:end!important;gap:16px!important;flex:1 1 0%!important;min-width:0!important;}
+.shared-seed-row .shared-seed {min-width:0!important;}
+.shared-seed-row .shared-seed input {height:var(--seed-control-height)!important;box-sizing:border-box;}
+.shared-seed-row .seed-randomize {min-width:0!important;align-self:end;position:relative;overflow:visible!important;}
+.shared-seed-row .seed-randomize label {height:var(--seed-control-height)!important;min-height:var(--seed-control-height)!important;padding:0!important;margin:0!important;white-space:nowrap;}
+.seed-help-tooltip {position:absolute;right:0;bottom:calc(100% + 8px);z-index:100;width:min(300px,calc(100vw - 64px));box-sizing:border-box;padding:12px 14px;border:1px solid #365065;border-radius:10px;background:#102335;color:#dce6ee;box-shadow:0 8px 24px #0006;font:13px/1.5 Plex,sans-serif;}
+.seed-help-tooltip[hidden],.seed-randomize .info-text:has(.seed-help-tooltip[hidden]) {display:none!important;}
+.seed-help-tooltip::after {content:'';position:absolute;left:0;right:0;top:100%;height:12px;}
+.seed-help-tooltip p {margin:0!important;}
+.seed-help-tooltip p+p {margin-top:8px!important;}
+.seed-help-tooltip strong {color:#e8cf93;}
 .shared-seed.seed-randomized {opacity:.45;}
 .shared-seed.seed-randomized input {cursor:default;}
 #single-clip-seed:has(.single-seed-controls[hidden]) {display:none!important;}

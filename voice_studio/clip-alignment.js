@@ -2,7 +2,7 @@
   const workspace=document.getElementById('production-workspace');
   if(!workspace || workspace.dataset.alignmentBound)return;
   workspace.dataset.alignmentBound='true';
-  const mobile=matchMedia('(max-width: 900px)');
+  const mobile=matchMedia('(max-width: 1299px)');
   let scheduled=false;
   let previousExpanded=false;
   function reconcile(){

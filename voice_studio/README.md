@@ -137,11 +137,12 @@ Rows and their players are matched by stable identity. Removing/import-replacing
 
 ### Seeds and Randomize
 
-Open **Generation settings**:
+Use the shared **Seed** and **Randomize** controls directly above **Generate** in both Single commentary and Multiple:
 
 - **Seed** defaults to `42`; `-1` requests random generation. A fixed seed helps compare takes but does not promise identical output across hardware or dependency changes.
 - **Randomize** dims the shared seed and prepares fresh editable seeds for Single commentary and Multiple rows. New/imported rows receive independent seeds.
-- **New seed** or a manual per-clip edit prepares the next take. An accepted queued job keeps its captured seed, even if you prepare a future one.
+- New Multiple clips start with the current main seed when Randomize is off. Existing clip seeds stay unchanged when the main seed changes. **Reset**, to the left of **New seed**, copies the current main seed into that clip.
+- **Reset**, **New seed**, or a manual per-clip edit prepares the next take. An accepted queued job keeps its captured seed, even if you prepare a future one.
 - Turning Randomize off restores shared-seed behavior for Single and rows without overrides. Existing per-clip overrides remain visible and active.
 - Seeds must be whole numbers from `-1` through `9007199254740991`. Changing a seed alone does not generate audio or rebuild a combined WAV.
 

@@ -8,7 +8,7 @@
       // guard must undo that transient override when the final label arrives.
       const wasBusy=button.getAttribute('aria-busy')==='true';
       if(busy&&!button.disabled)button.disabled=true;
-      if(!busy&&wasBusy&&/^(Unload experimental model|Save as new voice \.pt|Save voice file|Use this folder|Clone reference & generate commentary)$/.test(button.textContent.trim()))button.disabled=false;
+      if(!busy&&wasBusy&&/^(Unload experimental model|Save audition as voice \.pt|Download voice|Save as new voice \.pt|Save voice file|Use this folder|Clone reference & generate commentary)$/.test(button.textContent.trim()))button.disabled=false;
       if(button.getAttribute('aria-busy')!==String(busy))button.setAttribute('aria-busy',String(busy));
       button.classList.toggle('studio-operation-busy',busy);
     });
