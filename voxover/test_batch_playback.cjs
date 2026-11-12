@@ -118,3 +118,28 @@ streamed.media.end();assert.deepStrictEqual(clicks.at(-1),['stream-second',0]);
 api.stop();const stoppedCount=clicks.length;
 nodes.push(withId(player('stream-third'),'stream-c'));mutation();assert.equal(clicks.length,stoppedCount,'new streamed cards must never undo Stop');
 console.log('PASS full-batch streamed playback, sequence extension, playhead retention and Stop preservation');
+// A paragraph keeps its ID, but a regenerated WAV has a new immutable take.
+function take(node,revision){node.classList=['batch-audio','batch-take-'+revision];return node;}
+nodes=[take(stableCard(player('regen-active'),'a'),'old-a'),take(stableCard(player('other-playing'),'b'),'old-b')];api.play();
+const other=nodes[1];other.media.play();other.media.currentTime=13;other.media.emit('timeupdate');
+nodes[0].media.currentTime=9;nodes[0].media.emit('timeupdate');
+nodes[0]=take(stableCard(player('regen-new'),'a'),'new-a');mutation();
+assert.equal(nodes[0].media.currentTime,0,'regenerated active clip starts at zero, not old playhead');
+assert(!nodes[0].media.paused,'active Play all continues with new take from zero');
+assert.equal(other.media.currentTime,13);assert(!other.media.paused,'regeneration must not stop other playing audio');api.stop();
+nodes=[take(stableCard(player('regen-paused'),'a'),'old')];mutation();nodes[0].media.currentTime=19;
+nodes[0]=take(stableCard(player('regen-paused-new',19),'a'),'new');mutation();
+assert.equal(nodes[0].media.currentTime,0,'paused regenerated clip resets too');assert(nodes[0].media.paused);
+nodes=[take(stableCard(player('regen-native'),'a'),'native-old')];mutation();nodes[0].media.play();nodes[0].media.currentTime=12;nodes[0].media.emit('timeupdate');
+nodes[0]=take(stableCard(player('regen-native-new'),'a'),'native-new');mutation();assert.equal(nodes[0].media.currentTime,0);assert(!nodes[0].media.paused);api.stop();
+// Blob URLs can change without changing the take: retain that recovery behavior.
+nodes=[take(stableCard(player('same-take-old'),'a'),'same')];api.play();nodes[0].media.currentTime=8;
+nodes[0]=take(stableCard(player('same-take-remount'),'a'),'same');mutation();assert.equal(nodes[0].media.currentTime,8);api.stop();
+console.log('PASS regenerated take resets active/native/paused playheads, other audio stays playing, unchanged take preserves offset');
+// A shorter regenerated take must not be skipped due to the old playhead.
+nodes=[take(stableCard(player('short-old'),'a'),'short-old'),take(stableCard(player('short-next'),'b'),'next')];api.play();nodes[0].media.currentTime=20;nodes[0].media.emit('timeupdate');
+nodes[0]=take(stableCard(player('short-new'),'a'),'short-new');nodes[0].media.duration=2;mutation();assert.equal(nodes[0].media.currentTime,0);assert(!nodes[0].media.paused);assert(nodes[1].media.paused);api.stop();
+// Explicit Pause survives regeneration but not its stale progress.
+nodes=[take(stableCard(player('paused-sequence'),'a'),'paused-old')];api.play();nodes[0].media.currentTime=14;nodes[0].media.pause();
+nodes[0]=take(stableCard(player('paused-sequence-new'),'a'),'paused-new');mutation();assert.equal(nodes[0].media.currentTime,0);assert(nodes[0].media.paused);api.stop();
+console.log('PASS shorter regenerated take is not skipped and explicit paused sequence stays paused at zero');

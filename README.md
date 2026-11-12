@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="voice_studio/assets/app-icon/voxover.png" alt="Voxover microphone icon" width="112">
+  <img src="voxover/assets/app-icon/voxover.png" alt="Voxover microphone icon" width="112">
 </p>
 
 # Voxover
@@ -8,9 +8,9 @@
 
 Voxover is a local voiceover workspace built on [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS). Clone a reference voice, design a new one in words, audition it, and save a reusable voice prompt. Then create single takes or build a multi-clip commentary timeline with individual regeneration, playback, and WAV export.
 
-This is an independent fork, not an official Qwen release. The speech engine, models, and research are the work of the **Qwen team at Alibaba Cloud**. The custom application lives in [`voice_studio/`](voice_studio/); the original engine documentation is preserved in [README.upstream.md](README.upstream.md).
+This is an independent fork, not an official Qwen release. The speech engine, models, and research are the work of the **Qwen team at Alibaba Cloud**. The custom application lives in [`voxover/`](voxover/); the original engine documentation is preserved in [README.upstream.md](README.upstream.md).
 
-[Get started](#get-started) · [App guide](voice_studio/README.md) · [Screenshots](#screenshots) · [Verification](#verification) · [Upstream documentation](README.upstream.md)
+[Get started](#get-started) · [App guide](voxover/README.md) · [Screenshots](#screenshots) · [Verification](#verification) · [Upstream documentation](README.upstream.md)
 
 ![Voxover's Clone workspace with reference audio, shared commentary controls, and Listen & export](docs/screenshots/clone-workspace.jpg)
 
@@ -73,10 +73,10 @@ Use **Python 3.12** in a separate environment and install a CUDA-enabled PyTorch
 git clone https://github.com/AWADREE/Voxover.git
 cd Voxover
 python -m pip install -e .
-python -m pip install -r voice_studio/requirements.txt
+python -m pip install -r voxover/requirements.txt
 ```
 
-The current frontend **requires NVIDIA CUDA** and at least **6 GiB free GPU memory** before loading a model. It uses `cuda:0` and bfloat16; there is no CPU or Apple MPS fallback in this app. Longer text and references may need more memory. See the [tested compatibility baseline](voice_studio/README.md#requirements-and-installation) and [upstream environment guidance](README.upstream.md#environment-setup). A fresh cross-platform installation is not claimed to be qualified.
+The current frontend **requires NVIDIA CUDA** and at least **6 GiB free GPU memory** before loading a model. It uses `cuda:0` and bfloat16; there is no CPU or Apple MPS fallback in this app. Longer text and references may need more memory. See the [tested compatibility baseline](voxover/README.md#requirements-and-installation) and [upstream environment guidance](README.upstream.md#environment-setup). A fresh cross-platform installation is not claimed to be qualified.
 
 ### 2. Cache the models
 
@@ -92,16 +92,16 @@ The app uses local model files only and **does not download weights on startup**
 | `VOXOVER_PORT` | Local server port, default `8003`. |
 | `VOXOVER_PYTHON` | Python executable used by the Windows launcher. |
 
-Nonempty `VOXOVER_*` values take priority, followed by legacy `CADENTVOX_*`, then `VOICE_STUDIO_*`. The `voice_studio/` folder and `qwen-tts` engine package name remain unchanged for compatibility. Existing models and personal audio are not moved.
+Nonempty `VOXOVER_*` values take priority, followed by legacy `CADENTVOX_*`, then `VOICE_STUDIO_*`. The app directory is `voxover/`; the engine package remains `qwen-tts`. When upgrading an older checkout, move your ignored Outputs, Voices, Temp and local configuration from the former app directory into `voxover/` before launching. External model caches are unchanged.
 
 ### 3. Launch
 
 ```sh
-cd voice_studio
+cd voxover
 python -B app.py
 ```
 
-Open **http://127.0.0.1:8003**. On Windows, run `voice_studio/Open-GUI.ps1` from the repository root to start the app and open your browser. Set `VOXOVER_PYTHON` to the Python executable in your environment if needed. `voice_studio/Create-Shortcut.ps1` creates a Voxover shortcut beside the app, without adding a Start menu entry.
+Open **http://127.0.0.1:8003**. On Windows, run `voxover/Open-GUI.ps1` from the repository root to start the app and open your browser. Set `VOXOVER_PYTHON` to the Python executable in your environment if needed. `voxover/Create-Shortcut.ps1` creates a Voxover shortcut beside the app and in the current user Start menu.
 
 ### 4. Make your first take
 
@@ -109,7 +109,7 @@ Open **http://127.0.0.1:8003**. On Windows, run `voice_studio/Open-GUI.ps1` from
 2. Enter **Commentary text**, select a language, and click **Generate**.
 3. Listen. Optionally correct the transcript, then select **Save audition as voice .pt**. Saving is explicit, not automatic.
 4. Choose **Generate**, load the saved `.pt`, and select **Single commentary** or **Multiple**.
-5. Generate, refine, and export. The [step-by-step app guide](voice_studio/README.md#multiple-clips) covers importing scripts, individual takes, queues, seeds, timing, and Combine.
+5. Generate, refine, and export. The [step-by-step app guide](voxover/README.md#multiple-clips) covers importing scripts, individual takes, queues, seeds, timing, and Combine.
 
 ## Limits and responsible use
 
@@ -121,7 +121,7 @@ Open **http://127.0.0.1:8003**. On Windows, run `voice_studio/Open-GUI.ps1` from
 
 ## Files and privacy
 
-Default runtime folders are `voice_studio/Outputs/`, `voice_studio/Voices/`, and `voice_studio/Temp/`. Changing output/voice locations affects future saves without moving old files. These defaults, audio, prompts, settings, and logs are excluded from Git. Review staged files before publishing, especially after choosing custom output locations.
+Default runtime folders are `voxover/Outputs/`, `voxover/Voices/`, and `voxover/Temp/`. Changing output/voice locations affects future saves without moving old files. These defaults, audio, prompts, settings, and logs are excluded from Git. Review staged files before publishing, especially after choosing custom output locations.
 
 The app binds to localhost, disables public Gradio sharing and Gradio analytics, and loads models offline. This is a local workflow, not a hosted service or a substitute for securing your computer. Model weights and personal voice/audio data are not distributed with the repository.
 
@@ -130,7 +130,7 @@ The app binds to localhost, disables public Gradio sharing and Gradio analytics,
 The project includes Python unit/integration tests and JavaScript regression scripts for generation, storage, sample-first saving, per-clip queues/seeds, playback, alignment, timing, Combine, readiness, and UI transitions.
 
 ```sh
-cd voice_studio
+cd voxover
 python -B -m unittest discover -v
 ```
 
@@ -145,23 +145,23 @@ Get-ChildItem test_*.cjs | ForEach-Object {
 
 Some Python validation tests require the Base model cache. Most synthesis tests use mocks and a non-personal synthetic voice fixture; they do not establish voice quality. Historical real-model and browser checks are documented separately:
 
-- [Sample-first Clone and Design](voice_studio/SAMPLE-FIRST-VERIFICATION.md)
-- [Per-clip generation, regeneration, queues, and alignment](voice_studio/CLIP-REGENERATION-VERIFICATION.md)
-- [Playback continuity and sample-accurate timing](voice_studio/PLAYBACK-TIMING-VERIFICATION.md)
-- [Seed randomizer](voice_studio/SEED-RANDOMIZER-VERIFICATION.md)
-- [Timeline combining](voice_studio/MULTIPLE-COMBINE-VERIFICATION.md)
-- [Original baseline and its limits](voice_studio/VERIFICATION.md)
+- [Sample-first Clone and Design](voxover/SAMPLE-FIRST-VERIFICATION.md)
+- [Per-clip generation, regeneration, queues, and alignment](voxover/CLIP-REGENERATION-VERIFICATION.md)
+- [Playback continuity and sample-accurate timing](voxover/PLAYBACK-TIMING-VERIFICATION.md)
+- [Seed randomizer](voxover/SEED-RANDOMIZER-VERIFICATION.md)
+- [Timeline combining](voxover/MULTIPLE-COMBINE-VERIFICATION.md)
+- [Original baseline and its limits](voxover/VERIFICATION.md)
 
 This documentation refresh passed **214 Python tests** and all **18 JavaScript scripts**, including 2,121 artwork geometry cases. See [the checks and limitations](docs/screenshots/README.md#validation) for what was verified while preparing these screenshots.
 
 ## Keeping up with Qwen
 
-`main` contains Voxover. Integrate official Qwen changes on a separate branch, resolve conflicts, run compatibility and real-generation checks, and only then merge. There is no automatic synchronization. See the [update and rollback workflow](voice_studio/UPDATING.md).
+`main` contains Voxover. Integrate official Qwen changes on a separate branch, resolve conflicts, run compatibility and real-generation checks, and only then merge. There is no automatic synchronization. See the [update and rollback workflow](voxover/UPDATING.md).
 
 ## Credits and license
 
 - **Qwen team / Alibaba Cloud:** Qwen3-TTS engine, models, research, and original demo. [README.upstream.md](README.upstream.md) retains the original model descriptions, examples, evaluations, and citations.
-- **Voxover:** custom frontend, workflows, generated background, and app icon. See [asset provenance](voice_studio/ASSET-PROVENANCE.md).
-- **Sora and IBM Plex Sans:** bundled under SIL Open Font License 1.1, with license texts in [`voice_studio/assets/`](voice_studio/assets/).
+- **Voxover:** custom frontend, workflows, generated background, and app icon. See [asset provenance](voxover/ASSET-PROVENANCE.md).
+- **Sora and IBM Plex Sans:** bundled under SIL Open Font License 1.1, with license texts in [`voxover/assets/`](voxover/assets/).
 
-Code is distributed under [Apache License 2.0](LICENSE). Retain upstream and [third-party notices](voice_studio/THIRD_PARTY_NOTICES.md) when redistributing. Model downloads have their own model cards and applicable terms. This fork claims no official Qwen affiliation or ownership of its technology.
+Code is distributed under [Apache License 2.0](LICENSE). Retain upstream and [third-party notices](voxover/THIRD_PARTY_NOTICES.md) when redistributing. Model downloads have their own model cards and applicable terms. This fork claims no official Qwen affiliation or ownership of its technology.

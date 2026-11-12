@@ -8,7 +8,7 @@
 - Confirmed `AWADREE/Voxover` did not exist in the authenticated account before renaming `AWADREE/CadentVox` to **[AWADREE/Voxover](https://github.com/AWADREE/Voxover)**. Verified the unchanged repository ID, `1450104771`, and updated its About description. Ownership, public visibility and default branch are unchanged. This repository collision check is not a global name or trademark clearance.
 - Updated the shared local Git origin to the new URL. Upstream remains `QwenLM/Qwen3-TTS`. GitHub ordinarily redirects previous repository URLs; do not reuse the former repository names if those redirects are needed.
 - Updated the visible header, browser title, startup-splash styling, app messages, documentation, project URLs, shortcut/icon names, JavaScript namespaces and events to Voxover.
-- Nonempty environment settings resolve in this order: `VOXOVER_*`, `CADENTVOX_*`, then `VOICE_STUDIO_*`. The internal `voice_studio/` directory and `qwen-tts` package identity remain unchanged for existing imports, environments and saved-data locations.
+- Nonempty environment settings resolve in this order: `VOXOVER_*`, `CADENTVOX_*`, then `VOICE_STUDIO_*`. The app directory is now `voxover/`; the upstream `qwen-tts` package identity is unchanged.
 - Preserved the existing geometric microphone and night-sky artwork bytes. This changes the name, not the visual theme.
 - Created the local `Voxover.lnk` and `local-Voxover.ps1` launcher for port 8013. The previous local shortcut and launcher path remain usable as compatibility entries and point to Voxover.
 - Kept the branch, HEAD and staging tree unchanged. No commits, pushes, merges or model/dependency installations were performed.

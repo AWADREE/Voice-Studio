@@ -29,6 +29,8 @@ class BrandingTests(unittest.TestCase):
         shortcut = (ROOT/'Create-Shortcut.ps1').read_text(encoding='utf-8-sig')
         self.assertIn('Voxover.lnk', shortcut)
         self.assertIn('voxover.ico', shortcut)
+        self.assertIn("GetFolderPath('Programs')", shortcut)
+        self.assertEqual(ROOT.name, 'voxover')
 
     def test_new_config_takes_priority_and_legacy_still_works(self):
         self.assertTrue(hasattr(app, 'app_setting'), 'Brand-aware settings resolver is missing')

@@ -1,6 +1,6 @@
 # Updating the fork safely
 
-The official code stays at the repository root. Our independent UI is confined to voice_studio/. origin is the personal fork; upstream is QwenLM/Qwen3-TTS. There is no automatic synchronization.
+The official code stays at the repository root. Our independent UI is confined to voxover/. origin is the personal fork; upstream is QwenLM/Qwen3-TTS. There is no automatic synchronization.
 
 1. Commit/stash local source changes and back up local voice/audio data outside Git. Do not add ignored personal files.
 2. git fetch upstream

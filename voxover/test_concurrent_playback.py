@@ -57,6 +57,12 @@ class ConcurrentPlaybackTests(unittest.TestCase):
                 app.sf.write(path, app.np.zeros(2400), 24000)
             self.assertEqual(self.render_player(old)['key'], self.render_player(old)['key'])
             self.assertNotEqual(self.render_player(old)['key'], self.render_player(new)['key'])
+            old_classes = self.render_player(old)['props']['elem_classes']
+            new_classes = self.render_player(new)['props']['elem_classes']
+            old_take = next(c for c in old_classes if c.startswith('batch-take-'))
+            new_take = next(c for c in new_classes if c.startswith('batch-take-'))
+            self.assertNotEqual(old_take, new_take)
+            self.assertIn(old_take, self.render_player(old)['props']['elem_classes'])
 
 
 if __name__ == '__main__':

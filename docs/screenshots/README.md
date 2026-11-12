@@ -26,4 +26,4 @@ The timeline image was captured before the second clip was regenerated. The edit
 
 Known non-failing test warnings: missing optional flash-attn, existing unclosed-file/event-loop ResourceWarnings, and an upstream Gradio notice about constructor parameters moving to `launch()`. The browser fixture also emitted existing Starlette HTTP status-name deprecation warnings.
 
-This documentation task did not repeat a fresh dependency installation, GPU model inference, microphone/recording tests, or browser download-save completion. For historical real-model and broader browser evidence, use the verification links in the [app guide](../../voice_studio/README.md#tests-and-verification).
+This documentation task did not repeat a fresh dependency installation, GPU model inference, microphone/recording tests, or browser download-save completion. For historical real-model and broader browser evidence, use the verification links in the [app guide](../../voxover/README.md#tests-and-verification).

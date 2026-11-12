@@ -1386,7 +1386,7 @@ def build_ui():
                                     updated = clip.get('id') and clip.get('id') == (result or {}).get('highlight_id')
                                     with gr.Column(elem_classes=['batch-clip']+(['batch-clip-updated'] if updated else []), elem_id='generated-clip-'+clip['id'] if clip.get('id') else None, key=clip['audio']):
                                         gr.Markdown('### '+clip['label']+(' - Updated' if updated else ''))
-                                        player=BatchAudio(value=clip['audio'], type='filepath', interactive=False, label=clip['filename'], key='audio-'+clip['audio'], preserved_by_key=['value','playback_position','waveform_options'], elem_classes=['studio-audio-output','studio-audio','batch-audio'], waveform_options=gr.WaveformOptions(waveform_color='#6e8b9f',waveform_progress_color='#d9b96e',trim_region_color='#d9b96e30'))
+                                        player=BatchAudio(value=clip['audio'], type='filepath', interactive=False, label=clip['filename'], key='audio-'+clip['audio'], preserved_by_key=['value','playback_position','waveform_options'], elem_classes=['studio-audio-output','studio-audio','batch-audio', 'batch-take-'+uuid.uuid5(uuid.NAMESPACE_URL, clip['audio']).hex], waveform_options=gr.WaveformOptions(waveform_color='#6e8b9f',waveform_progress_color='#d9b96e',trim_region_color='#d9b96e30'))
                                         player.preserve_media = clip['audio'] in previous_paths
                                         player.stop(fn=None,js='() => window.voxoverBatchPlayback?.finished('+str(clip['index']-1)+')',api_name=False,key='ended-'+clip['audio'])
                                         gr.DownloadButton('Download '+clip['label'], value=clip['audio'])

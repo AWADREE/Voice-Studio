@@ -42,6 +42,9 @@
     }
     record.reset=null;record.loading=true;
   }
+  // Blob URLs change on harmless WaveSurfer reloads; the immutable WAV take
+  // marker changes only when generation actually publishes a replacement.
+  const take=player=>[...(player?.classList||[])].find(name=>name.startsWith('batch-take-'))||'';
   const identity=player=>player?.closest?.('.batch-clip')?.id || player;
   function sameSequence(){const current=players();return current.length===sequence.length&&current.every((node,i)=>identity(node)===identity(sequence[i]));}
   function trackPlayers(){
@@ -49,12 +52,13 @@
     for(const [id,previous] of tracked)if(!ids.has(id)&&!regenerating()){previous.playing=false;previous.cleanup?.();tracked.delete(id);}
     for(const player of current){
       const media=mediaIn(player);if(!media)continue;
-      const id=identity(player),previous=tracked.get(id);
-      if(previous?.media===media && previous.source===source(media) && !previous.loading)continue;
+      const id=identity(player),previous=tracked.get(id),currentTake=take(player);
+      const changedTake=previous && previous.take!==currentTake;
+      if(previous?.media===media && previous.source===source(media) && !previous.loading && !changedTake)continue;
       if(previous && media.readyState<1)continue;
       if(previous?.media===media && source(media)!==previous.source)loading(previous);
       previous?.cleanup?.();
-      const record={player,media,source:source(media),loading:false,time:media.currentTime||0,playing:!media.paused};tracked.set(id,record);
+      const record={player,media,take:currentTake,source:source(media),loading:false,time:media.currentTime||0,playing:!media.paused};tracked.set(id,record);
       const listeners=[];
       const listen=(event,fn)=>{listeners.push([event,fn]);media.addEventListener(event,fn);};
       record.cleanup=()=>listeners.forEach(([event,fn])=>media.removeEventListener(event,fn));
@@ -65,10 +69,11 @@
       listen('emptied',()=>loading(record));
       listen('loadstart',()=>loading(record));
       listen('loadedmetadata',()=>reconcile());
-      if(previous?.restoring)record.restoring=previous.restoring;
+      if(changedTake){media.currentTime=0;record.time=0;}
+      else if(previous?.restoring)record.restoring=previous.restoring;
       if(previous?.playing && (!playing || identity(active?.player || player)!==id)){
         previous.playing=false;
-        const offset=settled(previous)?previous.media.currentTime:previous.time;
+        const offset=changedTake?0:(settled(previous)?previous.media.currentTime:previous.time);
         previous.media.pause();
         if(!Number.isFinite(media.duration)||offset<media.duration){
           try{record.restoring={time:offset};media.currentTime=offset;media.play()?.catch(()=>{});}catch(error){}
@@ -94,7 +99,7 @@
     const resume=()=>{if(active?.media===media){active.userPaused=false;active.reset=null;}};
     const load=()=>{if(active?.media===media)loading(active);};
     const metadata=()=>reconcile();
-    active={player,media,source:source(media),loading:false,restoring:restoring?{time:offset}:null,end,tick,pause,resume,load,metadata,time:offset,userPaused:paused};media.addEventListener('ended',end);media.addEventListener('timeupdate',tick);media.addEventListener('pause',pause);media.addEventListener('play',resume);media.addEventListener('emptied',load);media.addEventListener('loadstart',load);media.addEventListener('loadedmetadata',metadata);
+    active={player,media,take:take(player),source:source(media),loading:false,restoring:restoring?{time:offset}:null,end,tick,pause,resume,load,metadata,time:offset,userPaused:paused};media.addEventListener('ended',end);media.addEventListener('timeupdate',tick);media.addEventListener('pause',pause);media.addEventListener('play',resume);media.addEventListener('emptied',load);media.addEventListener('loadstart',load);media.addEventListener('loadedmetadata',metadata);
     try{
       if(paused){media.currentTime=Number.isFinite(media.duration)?Math.min(offset,media.duration):offset;return;}
       if(Number.isFinite(media.duration)&&offset>=media.duration){start(i+1);return;}
@@ -135,13 +140,14 @@
     if(playing&&active){
       const current=players();
       const replacement=current[index];
-      if(replacement!==active.player || (mediaIn(replacement) && (mediaIn(replacement)!==active.media || source(mediaIn(replacement))!==active.source || active.loading))){
+      if(take(replacement)!==active.take || replacement!==active.player || (mediaIn(replacement) && (mediaIn(replacement)!==active.media || source(mediaIn(replacement))!==active.source || active.loading))){
         // Gradio can reload even unchanged sources. Keep the logical sequence,
-        // use the new take for future rows, and retain an active clip's playhead.
+        // retain offsets only for the SAME take, never for regenerated audio.
         if(mediaIn(replacement)===active.media && source(active.media)!==active.source)loading(active);
-        const offset=settled(active)?active.media.currentTime:active.time;
+        const changedTake=take(replacement)!==active.take;
+        const offset=changedTake?0:(settled(active)?active.media.currentTime:active.time);
         if(mediaIn(replacement)?.readyState>0){
-          const old=active.media,paused=active.userPaused;sequence=current;clearActive();old.pause();start(index,offset,paused,true);
+          const old=active.media,paused=active.userPaused;sequence=current;clearActive();old.pause();start(index,offset,paused,!changedTake);
         }else if(retry===null)retry=setTimeout(reconcile,50);
       }else sequence=current;
     }

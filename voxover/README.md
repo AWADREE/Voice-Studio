@@ -15,8 +15,8 @@ From the repository root:
 
 ```sh
 python -m pip install -e .
-python -m pip install -r voice_studio/requirements.txt
-cd voice_studio
+python -m pip install -r voxover/requirements.txt
+cd voxover
 python -B app.py
 ```
 
@@ -51,7 +51,7 @@ Expected default layout:
 | `VOXOVER_PORT` | Server port; default `8003`. |
 | `VOXOVER_PYTHON` | Python executable for the Windows launcher. |
 
-For app-specific variables, the first nonempty value wins: `VOXOVER_*`, then `CADENTVOX_*`, then `VOICE_STUDIO_*`. The internal folder name and upstream package name remain `voice_studio` and `qwen-tts` for compatibility.
+For app-specific variables, the first nonempty value wins: `VOXOVER_*`, then `CADENTVOX_*`, then `VOICE_STUDIO_*`. The app folder is `voxover`; the upstream engine package name remains `qwen-tts`.
 
 PowerShell example, with paths replaced by your own:
 
@@ -59,7 +59,7 @@ PowerShell example, with paths replaced by your own:
 $env:VOXOVER_PYTHON = 'C:\path\to\environment\Scripts\python.exe'
 $env:HF_HOME = 'D:\Models\huggingface'
 $env:VOXOVER_PORT = '8003'
-.\voice_studio\Open-GUI.ps1
+.\voxover\Open-GUI.ps1
 ```
 
 Run that launcher example from the repository root.
